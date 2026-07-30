@@ -1,0 +1,15 @@
+{
+ "type": "object",
+ "properties": {
+  "result": {
+   "type": "string",
+   "description": "Replace this schema with the shape your agent must return."
+  },
+  "notes": {
+   "type": "array",
+   "items": { "type": "string" },
+   "description": "Anything the caller must review or verify manually."
+  }
+ },
+ "required": ["result"]
+}
