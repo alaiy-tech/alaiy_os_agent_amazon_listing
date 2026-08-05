@@ -1,0 +1,227 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "autoname": "field:sku",
+ "creation": "2026-08-05 00:00:00",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "source_section",
+  "sku",
+  "status",
+  "confidence",
+  "col_break_source",
+  "title",
+  "content_section",
+  "bullet_points",
+  "description",
+  "keywords_section",
+  "keywords",
+  "images_section",
+  "image_status",
+  "image_error",
+  "image_tokens",
+  "images_preview",
+  "images",
+  "review_section",
+  "needs_review",
+  "notes",
+  "raw_section",
+  "bullets_json",
+  "keywords_json",
+  "output_json"
+ ],
+ "fields": [
+  {
+   "fieldname": "source_section",
+   "fieldtype": "Section Break",
+   "label": "Source"
+  },
+  {
+   "description": "The seller SKU this enrichment is for — also the name of its Amazon Listing. Plain Data rather than a Link so this app stays installable without the Amazon connector.",
+   "fieldname": "sku",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "SKU",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "Needs Review",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Status",
+   "options": "Draft\nNeeds Review\nApproved"
+  },
+  {
+   "fieldname": "confidence",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Confidence",
+   "options": "\nhigh\nmedium\nlow"
+  },
+  {
+   "fieldname": "col_break_source",
+   "fieldtype": "Column Break"
+  },
+  {
+   "description": "Mirrors the listing's `title`. Amazon truncates past 200 characters.",
+   "fieldname": "title",
+   "fieldtype": "Small Text",
+   "label": "Title"
+  },
+  {
+   "fieldname": "content_section",
+   "fieldtype": "Section Break",
+   "label": "Listing Fields"
+  },
+  {
+   "description": "The listing's key product features, in order. Amazon accepts at most five — these are what approval publishes, so edit them here before approving.",
+   "fieldname": "bullet_points",
+   "fieldtype": "Table",
+   "label": "Bullet Points",
+   "options": "Amazon Enriched Listing Bullet"
+  },
+  {
+   "description": "Plain text, no HTML or markdown. Amazon truncates past 2000 characters.",
+   "fieldname": "description",
+   "fieldtype": "Text",
+   "label": "Description"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "keywords_section",
+   "fieldtype": "Section Break",
+   "label": "Search Keywords"
+  },
+  {
+   "description": "Amazon BACKEND search terms — never shown to a shopper. These become the listing's `keywords` on approval, so edit them here before approving. Amazon indexes roughly the first 250 bytes and ignores the rest.",
+   "fieldname": "keywords",
+   "fieldtype": "Table",
+   "label": "Keywords",
+   "options": "Amazon Enriched Listing Keyword"
+  },
+  {
+   "fieldname": "images_section",
+   "fieldtype": "Section Break",
+   "label": "Images"
+  },
+  {
+   "default": "Not Required",
+   "description": "Images are produced after the listing text is saved, so a listing can be ready to review while its imagery is still rendering.",
+   "fieldname": "image_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Image Status",
+   "options": "Not Required\nQueued\nRunning\nReady\nPartial\nFailed",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.image_status==\"Failed\" || doc.image_status==\"Partial\"",
+   "fieldname": "image_error",
+   "fieldtype": "Small Text",
+   "label": "Image Error",
+   "read_only": 1
+  },
+  {
+   "description": "Tokens the image service billed for this listing. Recorded here rather than on the run, because the imagery is produced after the run closes.",
+   "fieldname": "image_tokens",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Image Tokens",
+   "read_only": 1
+  },
+  {
+   "description": "Thumbnails of what the image step produced; the child table below is always the editable source.",
+   "fieldname": "images_preview",
+   "fieldtype": "HTML",
+   "label": "Image Preview"
+  },
+  {
+   "collapsible": 1,
+   "description": "Images this run produced. Source photos are never overwritten. On approval the rows that have a URL replace the listing's image set, the first of them as the main image.",
+   "fieldname": "images",
+   "fieldtype": "Table",
+   "label": "Images",
+   "options": "Amazon Enriched Listing Image"
+  },
+  {
+   "fieldname": "review_section",
+   "fieldtype": "Section Break",
+   "label": "Review"
+  },
+  {
+   "description": "Fields the agent could not confidently fill — complete these before approving.",
+   "fieldname": "needs_review",
+   "fieldtype": "Small Text",
+   "label": "Needs Review"
+  },
+  {
+   "description": "Assumptions the agent made, which of Amazon's own listing issues this enrichment addresses, and which the admin still has to handle.",
+   "fieldname": "notes",
+   "fieldtype": "Small Text",
+   "label": "Notes"
+  },
+  {
+   "collapsible": 1,
+   "fieldname": "raw_section",
+   "fieldtype": "Section Break",
+   "label": "Raw Agent Output"
+  },
+  {
+   "description": "The bullet points exactly as the agent returned them, kept for audit. The Bullet Points table is what gets published — editing this changes nothing.",
+   "fieldname": "bullets_json",
+   "fieldtype": "Code",
+   "label": "Bullet Points (JSON)",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "description": "The keywords exactly as the agent returned them, kept for audit. The Keywords table is what gets published — editing this changes nothing.",
+   "fieldname": "keywords_json",
+   "fieldtype": "Code",
+   "label": "Keywords (JSON)",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
+   "description": "Verbatim JSON returned by the agent, kept for audit.",
+   "fieldname": "output_json",
+   "fieldtype": "Code",
+   "label": "Raw Agent Output (JSON)",
+   "options": "JSON",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "links": [],
+ "modified": "2026-08-05 00:00:00",
+ "modified_by": "Administrator",
+ "module": "Alaiy Os Agent Amazon Listing",
+ "name": "Amazon Enriched Listing",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "write": 1
+  }
+ ],
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "title_field": "title",
+ "track_changes": 1
+}

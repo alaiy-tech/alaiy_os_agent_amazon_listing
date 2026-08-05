@@ -1,0 +1,94 @@
+{
+ "type": "object",
+ "additionalProperties": false,
+ "properties": {
+  "title": {
+   "type": "string",
+   "description": "The product title, for the listing's `title`. It must READ naturally and at the same time contain the words a shopper would actually type to find this product. The pattern that works on Amazon is Brand + Product Type + defining specs (material, size, quantity, colour) + key use case, front-loading the most searched term. Title Case, at most 200 characters. No keyword stuffing, no repetition, no ALL CAPS, no promotional words, no price or shipping claims, no URLs or emojis."
+  },
+  "description": {
+   "type": "string",
+   "description": "The product description, for the listing's `description`. 2-4 short paragraphs of plain text (no HTML, no markdown), at most 2000 characters. Say what the product is, what it is made of, how it is used, and what is included. The search terms a shopper would use must appear naturally in the prose — worked into real sentences, never listed or repeated for their own sake. Never invent specifications not supported by the data or the photos."
+  },
+  "bullet_points": {
+   "type": "array",
+   "maxItems": 5,
+   "items": {
+    "type": "string",
+    "maxLength": 500
+   },
+   "description": "The listing's bullet points (Amazon's 'key product features'), for the listing's `bullet_points` table, in the order they should appear. At most five. Each one is a single distinct selling point written benefit-first and then backed by the specification that supports it — aim for 150-250 characters, plain text, no leading dashes or bullet glyphs, no ALL CAPS beyond a short leading phrase, no promotional or price claims. Never repeat the same point in two bullets."
+  },
+  "keywords": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "description": "Amazon BACKEND search terms, for the listing's `keywords` table — invisible to the shopper. Put here only the terms that did NOT earn a place in the title or bullets: synonyms, alternate and regional spellings, common misspellings, and related use cases. Never repeat a word that already appears in the title or bullets; Amazon already indexes those and a repeat wastes the byte budget. No competitor brand names, no ASINs, no subjective claims ('best', 'cheapest'), no temporary statements ('new', 'sale'). Keep the whole set under roughly 250 bytes. Reuse a keyword from get_reference_values verbatim when it applies, so the catalog stays consistent."
+  },
+  "images": {
+   "type": "array",
+   "description": "Images produced by the image step, for the listing's `images` table, in the order the tool returned them — copy its result entries verbatim. An empty array when no image step ran, when the product has no photos, or when the per-request image toggle was off.",
+   "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+     "kind": {
+      "type": "string",
+      "description": "What this image is, in the vocabulary your instructions give."
+     },
+     "source_url": {
+      "type": "string",
+      "description": "The input photo this image was derived from, when there was one."
+     },
+     "url": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "The resulting image, or null. Null is the normal case: the image step queues the work and it is rendered in the background after this run finishes, then attached to the listing. Copy null through as-is — it does not mean the image failed, and it does not belong in needs_review."
+     },
+     "note": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "description": "What the image step said about this entry, copied verbatim when it gave one. Leave null otherwise; do not write your own explanation of a null url."
+     }
+    }
+   }
+  },
+  "needs_review": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "description": "Human-readable names of fields that could NOT be confidently filled and must be completed by the admin before publish (e.g. 'Material', 'Bullet 5', 'Search Terms')."
+  },
+  "confidence": {
+   "type": "string",
+   "enum": [
+    "high",
+    "medium",
+    "low"
+   ],
+   "description": "Overall confidence in the enrichment given the quality of the source data and photos."
+  },
+  "notes": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "description": "Anything the admin should know: assumptions made, ambiguities, which of the listing's Amazon issues this enrichment addresses, which it cannot (pricing, inventory, category approval, compliance), or conflicts between the product text and the photos."
+  }
+ },
+ "required": [
+  "title",
+  "description",
+  "bullet_points",
+  "keywords",
+  "images",
+  "needs_review",
+  "confidence"
+ ]
+}

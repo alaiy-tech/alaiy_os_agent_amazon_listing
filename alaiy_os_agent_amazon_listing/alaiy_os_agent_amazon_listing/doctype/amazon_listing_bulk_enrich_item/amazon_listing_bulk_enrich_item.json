@@ -1,0 +1,66 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "creation": "2026-08-05 00:00:00.000000",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "sku",
+  "status",
+  "run",
+  "error"
+ ],
+ "fields": [
+  {
+   "columns": 3,
+   "description": "The listing to enrich — the seller SKU the agent is given, which is also the name of its Amazon Listing. Plain Data rather than a Link so this app keeps running without the Amazon connector installed.",
+   "fieldname": "sku",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "label": "SKU",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "default": "Pending",
+   "fieldname": "status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Status",
+   "options": "Pending\nRunning\nSuccess\nFailed\nSkipped\nCancelled",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "description": "This listing's own run — open it for the full output, transcript and token usage.",
+   "fieldname": "run",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Run",
+   "options": "OS Agent Run",
+   "read_only": 1
+  },
+  {
+   "columns": 3,
+   "description": "Why this listing failed, in one line. The run holds the full traceback.",
+   "fieldname": "error",
+   "fieldtype": "Small Text",
+   "in_list_view": 1,
+   "label": "Error",
+   "read_only": 1
+  }
+ ],
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-08-05 00:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Alaiy Os Agent Amazon Listing",
+ "name": "Amazon Listing Bulk Enrich Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,2 +1,2 @@
 include *.md
-recursive-include alaiy_os_agent_template *.json *.js *.css *.html *.svg *.png *.txt *.md
+recursive-include alaiy_os_agent_amazon_listing *.json *.js *.css *.html *.svg *.png *.txt *.md

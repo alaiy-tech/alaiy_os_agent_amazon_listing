@@ -1,0 +1,11 @@
+{
+ "doctype": "Page",
+ "module": "Alaiy Os Agent Amazon Listing",
+ "name": "run-amazon-agent",
+ "page_name": "run-amazon-agent",
+ "standard": "Yes",
+ "system_page": 0,
+ "title": "Run Amazon Agent",
+ "icon": "sparkles",
+ "roles": []
+}

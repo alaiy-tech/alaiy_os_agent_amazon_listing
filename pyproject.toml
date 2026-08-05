@@ -1,9 +1,9 @@
 [project]
-name = "alaiy_os_agent_template"
+name = "alaiy_os_agent_amazon_listing"
 authors = [
     { name = "Alaiy", email = "mail@alaiy.com"}
 ]
-description = "Agent Template for AlaiyOS"
+description = "The Amazon listing agent for AlaiyOS"
 requires-python = ">=3.14"
 readme = "README.md"
 dynamic = ["version"]

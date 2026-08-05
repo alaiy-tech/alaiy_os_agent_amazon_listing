@@ -1,0 +1,310 @@
+"""
+Install / migrate plumbing for the Amazon listing agent:
+
+  sync_agent_registry  -> (re)register it in OS Agent Registry
+  sync_agent_sidebar   -> the "Agents" section + link on the OS workspace sidebar
+  unregister           -> remove its registry row on uninstall
+
+You should not need to edit this to add a customer. A customer app overrides the
+agent by dropping a markdown file at `<app>/agents/amazon_listing.md`; see
+agent_meta.py.
+
+It runs from THIS app's after_install/after_migrate, which a plain `bench migrate`
+reaches on every pass — so editing a customer's override file and migrating is
+enough to reconcile it onto the site.
+
+The agent engine, run history (OS Agent Run) and the LLM - tool loop all live in
+alaiy_os; this app owns agent definitions and their tools, so there is no client,
+scheduler or sync-log here (unlike a connector).
+"""
+
+import json
+
+import frappe
+
+# Fields written from the manifest on every reconcile. is_enabled is deliberately
+# excluded: it is admin-controlled (toggled in the Desk form) and must survive
+# migrates, so it is only ever set by the DocType default on the first insert.
+_RUNTIME_FIELDS = {"is_enabled"}
+
+# Manifest keys consumed by the desk surfaces (see api.py), not by the registry.
+_NON_REGISTRY_FIELDS = {"agent_id", "tools", "input_options", "override_app"}
+
+
+def sync_agent_registry():
+	"""
+	Reconcile alaiy_os's OS Agent Registry: upsert the one `amazon_listing` row, and
+	drop any other listing-agent row this app owns. Called on install and every
+	migrate. Idempotent.
+
+	Because the agent_id is fixed, install order cannot produce a duplicate. The
+	prune is what clears rows left by an earlier naming, so a site that predates a
+	rename converges on one agent without anyone deleting a row by hand.
+	"""
+	# alaiy_os may not be migrated yet on a fresh bench; bail and let our own next
+	# migrate catch it.
+	if not frappe.db.exists("DocType", "OS Agent Registry"):
+		return
+
+	from alaiy_os_agent_amazon_listing.agent_meta import build_agent_meta
+
+	agent_meta = build_agent_meta()
+	_upsert_agent(agent_meta)
+	_prune_agents(keep=agent_meta["agent_id"])
+
+	frappe.db.commit()
+
+
+def _prune_agents(keep):
+	"""
+	Delete OS Agent Registry rows owned by this app other than `keep`.
+
+	Ownership is decided by the tool handlers: a row is ours only if at least one
+	handler dotted path points into this app's module namespace. That is what keeps
+	this from ever touching another app's agent — note the trailing dot, without
+	which a sibling app named `alaiy_os_agent_amazon_listing_*` would match too. The
+	Shopify listing agent's handlers point into its own namespace, so a site running
+	both agents leaves each one alone.
+
+	force=True because every past OS Agent Run links to the agent; the default link
+	check would refuse the delete. Those runs keep their agent id as recorded
+	history, they just no longer point at a live row.
+	"""
+	prefix = "alaiy_os_agent_amazon_listing."
+
+	for agent_id in frappe.get_all("OS Agent Registry", pluck="name"):
+		if agent_id == keep:
+			continue
+		handlers = frappe.get_all(
+			"OS Agent Tool",
+			filters={"parenttype": "OS Agent Registry", "parent": agent_id},
+			pluck="handler",
+		)
+		if not any(h and h.startswith(prefix) for h in handlers):
+			continue
+
+		frappe.delete_doc("OS Agent Registry", agent_id, force=True, ignore_permissions=True)
+		print(f"removed superseded listing agent '{agent_id}' (now '{keep}')")
+
+
+def _upsert_agent(agent_meta):
+	agent_id = agent_meta["agent_id"]
+
+	if frappe.db.exists("OS Agent Registry", agent_id):
+		doc = frappe.get_doc("OS Agent Registry", agent_id)
+	else:
+		doc = frappe.new_doc("OS Agent Registry")
+		doc.agent_id = agent_id
+
+	for key, val in agent_meta.items():
+		if key in _NON_REGISTRY_FIELDS or key in _RUNTIME_FIELDS:
+			continue
+		if key == "output_schema" and isinstance(val, dict):
+			val = json.dumps(val, indent=1)
+		doc.set(key, val)
+
+	doc.set("tools", [
+		{
+			"tool_id": tool["tool_id"],
+			"description": tool["description"],
+			"handler": tool["handler"],
+			"parameters_schema": (
+				json.dumps(tool["parameters_schema"], indent=1)
+				if isinstance(tool.get("parameters_schema"), dict)
+				else tool.get("parameters_schema")
+			),
+			"connector": tool.get("connector"),
+		}
+		for tool in agent_meta.get("tools", [])
+	])
+
+	# save() inserts when new. The OS Agent Tool child controller validates each
+	# handler dotted path here, so a broken tool fails at migrate, not mid-run.
+	doc.save(ignore_permissions=True)
+
+
+def unregister():
+	"""
+	Remove the listing agent's OS Agent Registry row on uninstall. OS Agent Run
+	history is intentionally left intact for audit.
+
+	force=True is what makes that possible: every past OS Agent Run links to the
+	agent, so the default link check refuses the delete and the whole uninstall dies
+	on LinkExistsError the moment the agent has ever been run. The runs keep their
+	agent id as recorded history; they simply no longer point at a live row.
+	"""
+	from alaiy_os_agent_amazon_listing.agent_meta import AGENT_ID
+
+	if frappe.db.exists("OS Agent Registry", AGENT_ID):
+		frappe.delete_doc("OS Agent Registry", AGENT_ID, force=True, ignore_permissions=True)
+	frappe.db.commit()
+
+
+# ── OS workspace sidebar entry ────────────────────────────────────────────────
+# An "Agents" collapsible section with a link to this app's run-agent page, added
+# to alaiy_os's main "OS" workspace sidebar. alaiy_os rebuilds that sidebar
+# wholesale on every migrate; this app migrates AFTER alaiy_os (it depends on it via
+# required_apps), so appending here survives the rebuild. Kept entirely in this app
+# so the alaiy_os folder is untouched.
+#
+# The section is SHARED with any other agent app on the site (the Shopify listing
+# agent adds the same one). So this only ever removes and re-adds its OWN link, and
+# creates the section header only when nothing has created it yet — otherwise the
+# two apps would delete each other's section on alternating migrates.
+
+_AGENTS_SECTION_LABEL = "Agents"
+_AGENT_PAGE = "run-amazon-agent"
+_AGENT_ICON = "sparkles"
+_AGENT_LABEL = "Amazon Listing"
+
+
+def _os_sidebar_name():
+	"""Name of the OS Workspace Sidebar doc. Imported from alaiy_os so it tracks
+	any rename there; falls back to the known default."""
+	try:
+		from alaiy_os.constants.workspace import WORKSPACE_NAME
+		return WORKSPACE_NAME
+	except Exception:
+		return "OS"
+
+
+def _is_our_link(item):
+	return item.type == "Link" and item.link_type == "Page" and item.link_to == _AGENT_PAGE
+
+
+def _is_agents_section(item):
+	return item.type == "Section Break" and item.label == _AGENTS_SECTION_LABEL
+
+
+def sync_agent_sidebar():
+	"""
+	Add (idempotently) this agent's link under the "Agents" section of the OS
+	workspace sidebar, creating that section if no other agent app already has.
+	No-op until the Workspace Sidebar and the run-amazon-agent Page both exist.
+	Called on install and every migrate.
+	"""
+	if not frappe.db.exists("DocType", "Workspace Sidebar"):
+		return
+	if not frappe.db.exists("Page", _AGENT_PAGE):
+		return
+
+	name = _os_sidebar_name()
+	if not frappe.db.exists("Workspace Sidebar", name):
+		return
+
+	sidebar = frappe.get_doc("Workspace Sidebar", name)
+
+	# Drop any previously-added copy of OUR link first so re-runs never stack
+	# duplicates. Another app's link, and the shared section header, are left alone.
+	kept = [it for it in sidebar.items if not _is_our_link(it)]
+	if len(kept) != len(sidebar.items):
+		sidebar.set("items", kept)
+
+	if not any(_is_agents_section(it) for it in sidebar.items):
+		sidebar.append("items", {
+			"type": "Section Break", "label": _AGENTS_SECTION_LABEL,
+			"icon": _AGENT_ICON, "child": 0, "indent": 1,
+		})
+	sidebar.append("items", {
+		"type": "Link", "link_type": "Page", "link_to": _AGENT_PAGE,
+		"label": _AGENT_LABEL, "child": 1, "icon": _AGENT_ICON,
+	})
+
+	sidebar.flags.ignore_links = True
+	sidebar.save(ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache()
+
+
+def unregister_sidebar():
+	"""Remove this agent's link on uninstall, and the "Agents" section with it if
+	nothing else is left under it."""
+	if not frappe.db.exists("DocType", "Workspace Sidebar"):
+		return
+	name = _os_sidebar_name()
+	if not frappe.db.exists("Workspace Sidebar", name):
+		return
+	sidebar = frappe.get_doc("Workspace Sidebar", name)
+
+	kept = [it for it in sidebar.items if not _is_our_link(it)]
+	if len(kept) == len(sidebar.items):
+		return
+	if not any(it.type == "Link" for it in kept):
+		kept = [it for it in kept if not _is_agents_section(it)]
+
+	sidebar.set("items", kept)
+	sidebar.flags.ignore_links = True
+	sidebar.save(ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache()
+
+
+# ── Custom fields on the connector's DocTypes ─────────────────────────────────
+# `is_enriched` describes something only THIS app knows about — whether an approved
+# Amazon Enriched Listing is live on a listing — so it is owned here as a Custom
+# Field rather than added to Amazon Listing's JSON in
+# alaiy_os_connector_amazon_sp_api. That keeps the connector installable without the
+# agent, and keeps the field's lifecycle tied to the app that writes it (see
+# amazon_enriched_listing.py, which sets and clears it).
+
+_CUSTOM_FIELDS = {
+	"Amazon Listing": [
+		{
+			"fieldname": "is_enriched",
+			"label": "Enriched",
+			"fieldtype": "Check",
+			"insert_after": "listing_status",
+			"default": "0",
+			"read_only": 1,
+			"in_list_view": 1,
+			"in_standard_filter": 1,
+			"description": (
+				"An approved AI enrichment is live on this listing. Set when its "
+				"Amazon Enriched Listing is approved; cleared when the listing agent "
+				"re-runs, so it always means the CURRENT content passed review."
+			),
+		}
+	],
+}
+
+
+def sync_custom_fields():
+	"""
+	Create (idempotently) this app's custom fields on the connector's DocTypes.
+	Called on install and every migrate.
+
+	No-op until the connector is installed: this app does not depend on
+	alaiy_os_connector_amazon_sp_api, so a site can run the agent without it. Editing
+	the dict above and migrating is enough to reconcile a changed property onto the
+	site — create_custom_fields updates an existing field in place when passed
+	update=True.
+	"""
+	from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
+
+	present = {
+		doctype: fields
+		for doctype, fields in _CUSTOM_FIELDS.items()
+		if frappe.db.exists("DocType", doctype)
+	}
+	if not present:
+		return
+
+	create_custom_fields(present, update=True)
+	frappe.db.commit()
+	frappe.clear_cache()
+
+
+def remove_custom_fields():
+	"""
+	Drop this app's custom fields on uninstall.
+
+	The underlying column is left in place — dropping it would destroy the enriched
+	flag for every listing, and a reinstall re-adopts the column as-is.
+	"""
+	for doctype, fields in _CUSTOM_FIELDS.items():
+		for field in fields:
+			name = f"{doctype}-{field['fieldname']}"
+			if frappe.db.exists("Custom Field", name):
+				frappe.delete_doc("Custom Field", name, ignore_permissions=True)
+	frappe.db.commit()
+	frappe.clear_cache()
