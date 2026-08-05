@@ -24,7 +24,7 @@ frappe.ui.form.on("Item", {
 
 function enrich(frm) {
 	frappe.db
-		.get_list("Amazon Listing", {
+		.get_list("Amazon Product Listing", {
 			filters: { product: frm.doc.name },
 			fields: ["name", "marketplace", "listing_status"],
 			limit: 50,
@@ -34,7 +34,7 @@ function enrich(frm) {
 				frappe.msgprint({
 					title: __("No Amazon listing"),
 					message: __(
-						"This item has no Amazon Listing, so there is nothing for the agent to enrich. Sync the listing from Amazon first."
+						"This item has no Amazon Product Listing, so there is nothing for the agent to enrich. Sync the listing from Amazon first."
 					),
 					indicator: "orange",
 				});

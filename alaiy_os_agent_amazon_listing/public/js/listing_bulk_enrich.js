@@ -1,10 +1,10 @@
-// "Enrich Listings" in the Amazon Listing list view: tick a batch of listings,
+// "Enrich Listings" in the Amazon Product Listing list view: tick a batch of listings,
 // pick the toggles once, and every one is enriched on the workers.
 //
 // The run itself is the backend's job (api.bulk_enrich -> bulk.py). This only
 // collects the selection and opens the batch, which shows its own live progress.
 
-frappe.listview_settings["Amazon Listing"] = {
+frappe.listview_settings["Amazon Product Listing"] = {
 	onload(listview) {
 		alaiy.amazon_listing_agent.get().then((agent) => {
 			if (!agent) return;

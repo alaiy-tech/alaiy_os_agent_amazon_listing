@@ -14,7 +14,7 @@
  "fields": [
   {
    "columns": 3,
-   "description": "The listing to enrich — the seller SKU the agent is given, which is also the name of its Amazon Listing. Plain Data rather than a Link so this app keeps running without the Amazon connector installed.",
+   "description": "The listing to enrich — the seller SKU the agent is given, which is also the name of its Amazon Product Listing. Plain Data rather than a Link so this app keeps running without the Amazon connector installed.",
    "fieldname": "sku",
    "fieldtype": "Data",
    "in_list_view": 1,

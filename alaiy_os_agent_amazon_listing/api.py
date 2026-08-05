@@ -7,7 +7,7 @@ The run-agent page and the Enrich buttons are shipped by this app and stay gener
 they do not hardcode an agent_id, and they render their per-request toggles from
 whatever the agent's tools declare. `get_listing_agent` is the one endpoint they ask.
 
-`bulk_enrich` is the many-listings entry point. It creates an Amazon Listing Bulk
+`bulk_enrich` is the many-listings entry point. It creates an Amazon Product Listing Bulk
 Enrich and starts it; the listings then run on Frappe workers, one OS Agent Run each
 (see bulk.py). Poll `get_bulk_status`.
 """
@@ -66,7 +66,7 @@ def bulk_enrich(skus, notes=None, batch_size=None, skip_enriched=0, **toggles):
 	"""
 	Enrich many listings at once. Returns {batch, items, jobs}.
 
-	`skus` are Amazon Listing names (a list, or a JSON array over REST). Extra
+	`skus` are Amazon Product Listing names (a list, or a JSON array over REST). Extra
 	keyword arguments are the agent's per-request toggles — whatever
 	`get_listing_agent` reports in `input_options`, e.g. `prepare_images` — so this
 	signature does not name a tool either.
@@ -103,7 +103,7 @@ def approve_listings(names):
 
 	Each listing is approved through a normal document save, so the same
 	on_update hook that fires for a one-at-a-time approval pushes each one to
-	its Amazon Listing. Returns {approved, skipped, failed, errors}:
+	its Amazon Product Listing. Returns {approved, skipped, failed, errors}:
 	already-approved rows are counted as skipped, and one bad listing does not
 	stop the rest (its error is reported per name instead).
 	"""

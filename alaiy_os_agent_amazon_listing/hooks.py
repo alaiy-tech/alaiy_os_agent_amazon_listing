@@ -25,13 +25,13 @@ required_apps = ["alaiy_os", "erpnext"]
 # agent_id and neither hardcodes a per-request toggle.
 doctype_js = {
     "Item": "public/js/item_enrich.js",
-    "Amazon Listing": "public/js/listing_enrich.js",
+    "Amazon Product Listing": "public/js/listing_enrich.js",
 }
 
 # The list view's "Enrich Listings" action: tick any number of listings and enrich
 # them all in one batch (api.bulk_enrich -> bulk.py).
 doctype_list_js = {
-    "Amazon Listing": "public/js/listing_bulk_enrich.js",
+    "Amazon Product Listing": "public/js/listing_bulk_enrich.js",
 }
 
 # Fetching the agent and building its toggle fields is shared by the form button and

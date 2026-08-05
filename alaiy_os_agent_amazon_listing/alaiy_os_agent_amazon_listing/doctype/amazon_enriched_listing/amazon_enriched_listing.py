@@ -6,7 +6,7 @@ import json
 import frappe
 from frappe.model.document import Document
 
-LISTING_DOCTYPE = "Amazon Listing"
+LISTING_DOCTYPE = "Amazon Product Listing"
 
 # Amazon accepts at most five key product features; a sixth is rejected on
 # submission, so approval never publishes one.
@@ -41,14 +41,14 @@ class AmazonEnrichedListing(Document):
 			)
 
 	def _push_to_listing(self):
-		"""Push approved enrichment back to the Amazon Listing.
+		"""Push approved enrichment back to the Amazon Product Listing.
 
 		Only the four content fields the agent produces are written. Offer data
 		(price, quantity, condition, fulfillment channel), the ASIN and the
 		marketplace belong to the connector and are never touched here — and neither
 		is the listing's own `suppression_reasons`, which only Amazon clears.
 
-		This writes to the local Amazon Listing record, not to Amazon. Submitting it
+		This writes to the local Amazon Product Listing record, not to Amazon. Submitting it
 		is the connector's job, on its own schedule.
 		"""
 		if not frappe.db.exists(LISTING_DOCTYPE, self.sku):

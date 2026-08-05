@@ -242,13 +242,13 @@ def unregister_sidebar():
 # ── Custom fields on the connector's DocTypes ─────────────────────────────────
 # `is_enriched` describes something only THIS app knows about — whether an approved
 # Amazon Enriched Listing is live on a listing — so it is owned here as a Custom
-# Field rather than added to Amazon Listing's JSON in
+# Field rather than added to Amazon Product Listing's JSON in
 # alaiy_os_connector_amazon_sp_api. That keeps the connector installable without the
 # agent, and keeps the field's lifecycle tied to the app that writes it (see
 # amazon_enriched_listing.py, which sets and clears it).
 
 _CUSTOM_FIELDS = {
-	"Amazon Listing": [
+	"Amazon Product Listing": [
 		{
 			"fieldname": "is_enriched",
 			"label": "Enriched",

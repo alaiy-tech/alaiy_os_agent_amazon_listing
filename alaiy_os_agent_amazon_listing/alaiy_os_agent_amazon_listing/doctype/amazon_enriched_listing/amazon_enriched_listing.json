@@ -38,7 +38,7 @@
    "label": "Source"
   },
   {
-   "description": "The seller SKU this enrichment is for — also the name of its Amazon Listing. Plain Data rather than a Link so this app stays installable without the Amazon connector.",
+   "description": "The seller SKU this enrichment is for — also the name of its Amazon Product Listing. Plain Data rather than a Link so this app stays installable without the Amazon connector.",
    "fieldname": "sku",
    "fieldtype": "Data",
    "in_list_view": 1,

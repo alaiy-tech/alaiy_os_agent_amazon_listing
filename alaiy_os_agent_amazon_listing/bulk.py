@@ -3,7 +3,7 @@
 """Bulk enrichment: many listings, still one OS Agent Run each.
 
 The engine in alaiy_os runs exactly one listing per Run, and this does not change
-that — a batch is a fan-out over it. The rows of an Amazon Listing Bulk Enrich are
+that — a batch is a fan-out over it. The rows of an Amazon Product Listing Bulk Enrich are
 split into chunks of `batch_size`, one background job per chunk, and each job walks
 its rows in order: create the Run, then execute it in-process through core's
 ``run_queued``. So every listing keeps its own run history, output, transcript and

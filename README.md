@@ -1,7 +1,7 @@
 ## Alaiy OS Agent — Amazon Listing
 
 The **Amazon listing agent** for Alaiy OS, shipped as a standalone Frappe app. It
-takes one product's existing **Amazon Listing** and rewrites the content fields
+takes one product's existing **Amazon Product Listing** and rewrites the content fields
 Amazon actually indexes — title, bullet points, description, and backend search
 keywords — plus, optionally, its photos. It never publishes: every run lands in an
 `Amazon Enriched Listing` in *Needs Review* status for an admin to edit and approve.
@@ -11,20 +11,20 @@ LLM ⇄ tool loop, and the "Agents" hub. This app owns one agent's definition, i
 tools, its review DocTypes, and its desk surfaces.
 
 It is the Amazon counterpart to `alaiy_os_agent_shopify_listing` and works the same
-way; the difference is which registry it reads. This one reads the **Amazon Listing**
+way; the difference is which registry it reads. This one reads the **Amazon Product Listing**
 DocType from `alaiy_os_connector_amazon_sp_api`, keyed by seller **SKU**.
 
 ### What it reads and writes
 
 | | |
 |---|---|
-| Reads | `Amazon Listing` — title, ASIN, marketplace, listing status, condition, offer data, description, bullet points, keywords, images, and Amazon's own **suppression reasons** (the agent is told to fix the issues that name a field it produces) |
+| Reads | `Amazon Product Listing` — title, ASIN, marketplace, listing status, condition, offer data, description, bullet points, keywords, images, its variation family (`is_variation_parent` / `parent_listing` / `variation_theme`), and Amazon's own **suppression reasons** (the agent is told to fix the issues that name a field it produces) |
 | Writes | `Amazon Enriched Listing` (Needs Review) — title, bullet points, description, keywords, images, plus `needs_review` / `confidence` / `notes` |
-| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Listing` **main image first**, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API. |
+| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Product Listing` **main image first**, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API. |
 
-Amazon's shape drives the differences from the Shopify agent: there are no variants,
-no category or product type and no metafields, so the output is the five content
-fields above. Approval never publishes a sixth bullet, and an enrichment that
+Amazon's shape drives the differences from the Shopify agent: variations are separate
+sibling listings rather than child rows, and there is no category, product type or
+metafields, so the output is the five content fields above. Approval never publishes a sixth bullet, and an enrichment that
 produced no bullets, keywords or images leaves what the listing already has in place
 rather than emptying it.
 
@@ -68,7 +68,7 @@ namespaces.
 
 ### Running it
 
-From the desk: **Enrich Listing** on an `Amazon Listing` form, **Enrich Listings**
+From the desk: **Enrich Listing** on an `Amazon Product Listing` form, **Enrich Listings**
 in its list view (bulk, on workers), **Enrich Amazon Listing** on an `Item`, or the
 **Amazon Listing** page under Agents in the OS sidebar.
 
@@ -119,9 +119,13 @@ There is **one** image step, and it produces two kinds of image in one call:
 | `gallery` | The family's photos, in order | AlphaShop `translate_image` |
 
 The main photo is resolved in code, never by the model: `skuImage` from the linked
-Item's variant specs → the listing's `is_main` row → the family's first photo. The
-last of those is a fallback, and it is logged *and* pushed into `needs_review`,
+Item's variant specs → this listing's own `is_main` row → the family's first photo.
+The last of those is a fallback, and it is logged *and* pushed into `needs_review`,
 because it means the shopper sees a generic image instead of the variant they picked.
+
+"The family" is the connector's own variation model: for a child listing
+(`parent_listing` set, `is_variation_parent` clear) the gallery is the **parent
+listing's** images; for a standalone listing or a parent it is the listing's own.
 The ordering survives the model: the plan travels with the queued job, and stage two
 re-derives the rows and re-sorts them main-first regardless of what the model echoed
 back.

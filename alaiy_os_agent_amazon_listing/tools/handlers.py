@@ -19,7 +19,7 @@ model as an errored tool_result. We still prefer to degrade gracefully (skip an
 unreadable image, guard optional rows) so a single bad attachment does not sink
 the whole enrichment.
 
-The source of truth read here is the **Amazon Listing** DocType (its `name` is the
+The source of truth read here is the **Amazon Product Listing** DocType (its `name` is the
 seller SKU, autoname: field:sku), NOT the Item — the listing's own fields (title,
 description, bullets, keywords, offer data) and its `images` child table are all we
 look at. The agent does not edit the listing (or the Item behind it) and does not
@@ -42,7 +42,7 @@ MAX_BULLETS = 5
 
 # The DocType the agent reads from. Its `name` is the seller SKU (autoname:
 # field:sku), so a caller's sku doubles as the listing name.
-LISTING_DOCTYPE = "Amazon Listing"
+LISTING_DOCTYPE = "Amazon Product Listing"
 
 # The DocType the agent writes to, for admin review.
 ENRICHED_DOCTYPE = "Amazon Enriched Listing"
@@ -96,9 +96,15 @@ def primary_listing_image_url(listing):
 #      per-variant photo in the sourcing data. It arrives as a custom field
 #      (`ng_specs_json`) owned by the customer app that ingests it, so it is read
 #      defensively — a bench without that app simply falls through.
-#   2. The Amazon Listing's own row flagged `is_main`.
+#   2. This listing's own row flagged `is_main`.
 #   3. The first family photo — a fallback that IS logged and reported, because it
 #      means the shopper sees a generic image where they should have seen theirs.
+#
+# "The family" is the parent listing, which the connector models natively:
+# `parent_listing` links a child to its variation parent (`is_variation_parent`), and
+# `variation_theme` says what the family varies by. So the gallery is the PARENT's
+# images when there is a parent, and the listing's own when there is not — which is
+# what "the remaining family images, Image 1..N, in order" actually means for a child.
 
 # The custom field the sourcing app puts on Item. Absent on a bench without it.
 _ITEM_SPECS_FIELD = "ng_specs_json"
@@ -173,36 +179,58 @@ def _item_specs_image(item_code):
 	return None
 
 
-def resolve_image_plan(listing):
-	"""The image plan for one Amazon Listing: the variant's photo, then the family's.
+def family_image_urls(listing):
+	"""The family's photos for this listing, in order — the gallery.
 
-	The gallery is the listing's remaining photos in table order. The variant photo is
-	NOT removed from the gallery when it is also a family photo — Amazon's gallery is
-	the family's images and the main tile is separate, so the same photo legitimately
-	appears in both, processed differently for each.
+	For a CHILD listing that is the variation parent's image set: the parent carries
+	the family shots (Image 1..N) and the child carries its own variant photo. For a
+	standalone listing, or a parent itself, it is simply the listing's own images.
+
+	Falls back to the listing's own photos when the parent link is dangling or the
+	parent has no images of its own, so a broken parentage costs the gallery nothing.
+	"""
+	own = listing_image_urls(listing)
+	parent = listing.get("parent_listing")
+	if not parent or listing.get("is_variation_parent"):
+		return own
+	if not frappe.db.exists(LISTING_DOCTYPE, parent):
+		return own
+	family = listing_image_urls(frappe.get_doc(LISTING_DOCTYPE, parent))
+	return family or own
+
+
+def resolve_image_plan(listing):
+	"""The image plan for one Amazon Product Listing: the variant's photo, then the
+	family's.
+
+	The variant photo is NOT removed from the gallery when it is also a family photo —
+	Amazon's gallery is the family's images and the main tile is separate, so the same
+	photo legitimately appears in both, processed differently for each.
 
 	Falls back to the family's first photo when the variant has none, and says so in
 	`main_fallback` so the tool can log it and put it in front of a human.
 	"""
-	family = listing_image_urls(listing)
-	main = _item_specs_image(listing.get("product")) or None
+	family = family_image_urls(listing)
+	own = listing_image_urls(listing)
 
+	# 1. the variant's own skuImage, 2. this listing's own main row, 3. the family's
+	# first photo — the last of which is the fallback worth shouting about.
+	main = _item_specs_image(listing.get("product")) or None
+	fallback = False
 	if not main:
-		# The connector's own main flag is the next best statement of "this is the
-		# photo for this listing", and listing_image_urls already sorts it first.
+		main = own[0] if own else None
+	if not main:
 		main = family[0] if family else None
 		fallback = bool(main)
-	else:
-		fallback = False
 
 	if fallback and main:
 		frappe.log_error(
 			title=f"Amazon listing images: no variant photo for {listing.name}",
 			message=(
 				f"{listing.name} has no skuImage on its linked Item "
-				f"({listing.get('product') or 'no item'}), so the family's first photo "
-				f"({main}) was used as the main image. The shopper will see a generic "
-				"image rather than the variant they selected."
+				f"({listing.get('product') or 'no item'}) and no image of its own, so "
+				f"the family's first photo ({main}) was used as the main image. The "
+				"shopper will see a generic image rather than the variant they selected."
 			),
 		)
 
@@ -210,7 +238,7 @@ def resolve_image_plan(listing):
 
 
 def get_listing(sku):
-	"""The Amazon Listing for `sku`, or throw a useful message."""
+	"""The Amazon Product Listing for `sku`, or throw a useful message."""
 	if not frappe.db.exists(LISTING_DOCTYPE, sku):
 		frappe.throw(
 			f"No {LISTING_DOCTYPE} found for sku '{sku}'. "
@@ -221,7 +249,7 @@ def get_listing(sku):
 
 def _collect_image_blocks(listing):
 	"""
-	Gather up to MAX_IMAGES photo blocks from an Amazon Listing's `images` child
+	Gather up to MAX_IMAGES photo blocks from an Amazon Product Listing's `images` child
 	table, main image first. Each row's `image_url` is either an Amazon CDN url or a
 	stored File. Labels say which one is the main image, because that is the photo
 	the shopper sees in search results and the one the title has to agree with.
@@ -243,7 +271,7 @@ def _collect_image_blocks(listing):
 
 def get_product(sku):
 	"""
-	Return an Amazon Listing's data plus its product photos as vision content
+	Return an Amazon Product Listing's data plus its product photos as vision content
 	blocks. The listing's `name` is the seller SKU, so the caller's sku is used
 	directly as the listing name. The model receives a text block of the structured
 	data followed by one labelled image block per photo. Reads strictly from the
@@ -266,6 +294,10 @@ def get_product(sku):
 		"item_code": listing.get("product"),
 		"marketplace": listing.get("marketplace"),
 		"listing_status": listing.get("listing_status"),
+		"is_variation_parent": bool(listing.get("is_variation_parent")),
+		"parent_asin": listing.get("parent_asin"),
+		"parent_listing": listing.get("parent_listing"),
+		"variation_theme": listing.get("variation_theme"),
 		"fulfillment_channel": listing.get("fulfillment_channel"),
 		"condition": listing.get("condition"),
 		"price": listing.get("price"),
@@ -298,9 +330,21 @@ def get_product(sku):
 	blocks = [
 		{
 			"type": "text",
-			"text": "Amazon Listing data (JSON):\n" + frappe.as_json(data),
+			"text": "Amazon Product Listing data (JSON):\n" + frappe.as_json(data),
 		}
 	]
+	if data["parent_listing"] and not data["is_variation_parent"]:
+		blocks.append({
+			"type": "text",
+			"text": (
+				f"This is a CHILD listing in the variation family {data['parent_listing']}"
+				+ (f", which varies by {data['variation_theme']}. " if data["variation_theme"] else ". ")
+				+ "Its title must be UNIQUE among its siblings and must carry this "
+				"variant's own specification — two children with the same title are a "
+				"duplicate-listing problem, not a style one."
+			),
+		})
+
 	if data["variant_specifications"]:
 		blocks.append({
 			"type": "text",
@@ -425,7 +469,7 @@ def save_listing(listing, sku=None):
 	it falls back to listing["sku"] if not passed separately. The row lands in
 	"Needs Review" status so an admin edits/approves it before anything is published.
 
-	Every field written here corresponds to a field on the Amazon Listing itself
+	Every field written here corresponds to a field on the Amazon Product Listing itself
 	(title -> title, description -> description, bullet_points -> bullet_points,
 	keywords -> keywords, images -> images), plus the three review fields the
 	approval step needs. The agent produces nothing else.
@@ -473,7 +517,7 @@ def save_listing(listing, sku=None):
 	doc.output_json = frappe.as_json(listing)
 
 	# The same two things again, as child tables — a reviewer reads and edits rows,
-	# not a JSON blob, exactly as they do on the Amazon Listing itself. These tables
+	# not a JSON blob, exactly as they do on the Amazon Product Listing itself. These tables
 	# are what approval publishes from (see AmazonEnrichedListing._sync_bullets /
 	# _sync_keywords), so an edit made there reaches Amazon; the JSON fields beside
 	# them stay the agent's own words.

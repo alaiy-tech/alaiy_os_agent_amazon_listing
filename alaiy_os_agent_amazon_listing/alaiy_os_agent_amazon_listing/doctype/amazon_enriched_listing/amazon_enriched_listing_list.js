@@ -1,7 +1,7 @@
 // "Approve" in the Amazon Enriched Listing list view: tick any number of
 // listings and approve them in one go. Each approval runs server-side through a
 // normal document save, so the same on_update hook that serves a one-at-a-time
-// approval pushes every listing to its Amazon Listing
+// approval pushes every listing to its Amazon Product Listing
 // (api.approve_listings).
 
 frappe.listview_settings["Amazon Enriched Listing"] = {
@@ -23,7 +23,7 @@ function approve_selected(listview) {
 
 	frappe.confirm(
 		__(
-			"Approve {0} listing(s)? Each one is written to its Amazon Listing immediately; the connector submits it to Amazon on its own schedule.",
+			"Approve {0} listing(s)? Each one is written to its Amazon Product Listing immediately; the connector submits it to Amazon on its own schedule.",
 			[names.length]
 		),
 		() => {

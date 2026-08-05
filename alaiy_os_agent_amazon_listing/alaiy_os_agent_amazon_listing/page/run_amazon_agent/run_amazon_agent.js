@@ -16,7 +16,7 @@
 // input_options), each relayed into the run payload under its own fieldname. So the
 // image toggle appears here without this file knowing it exists.
 //
-// The page is keyed on the seller SKU, which is the Amazon Listing's own name — the
+// The page is keyed on the seller SKU, which is the Amazon Product Listing's own name — the
 // agent has no notion of an item_code. An "Enrich Amazon Listing" button on the Item
 // form (public/js/item_enrich.js) resolves that item's listings and deep-links here
 // with the SKU pre-selected via frappe.route_options.
@@ -247,7 +247,7 @@ class RunAgentPage {
 		this.sku_control = frappe.ui.form.make_control({
 			df: {
 				fieldtype: "Link",
-				options: "Amazon Listing",
+				options: "Amazon Product Listing",
 				fieldname: "sku",
 				placeholder: __("Search for a SKU…"),
 			},
@@ -342,18 +342,18 @@ class RunAgentPage {
 		// Before/After compare the same fields.
 		if (inputs.sku) {
 			frappe.db
-				.get_value("Amazon Listing", inputs.sku, ["title", "description", "asin", "marketplace"])
+				.get_value("Amazon Product Listing", inputs.sku, ["title", "description", "asin", "marketplace"])
 				.then((r) => {
 					this.original_listing = (r && r.message) || null;
 				});
 			// The bullets are a child table, so they need their own read.
 			frappe.db
 				.get_list("Amazon Listing Bullet", {
-					filters: { parent: inputs.sku, parenttype: "Amazon Listing" },
+					filters: { parent: inputs.sku, parenttype: "Amazon Product Listing" },
 					fields: ["bullet"],
 					order_by: "idx asc",
 					limit: 10,
-					parent: "Amazon Listing",
+					parent: "Amazon Product Listing",
 				})
 				.then((rows) => {
 					this.original_bullets = (rows || []).map((r) => r.bullet).filter(Boolean);

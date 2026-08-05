@@ -90,7 +90,7 @@ def tool_catalog(output_schema):
 	return {
 		"get_product": {
 			"description": (
-				"Fetch a product's Amazon Listing by its seller SKU, returning the "
+				"Fetch a product's Amazon Product Listing by its seller SKU, returning the "
 				"listing's current data — title, ASIN, marketplace, listing status, "
 				"condition, price, quantity, description, existing bullet points and "
 				"search keywords, and Amazon's own open issues (suppression reasons "
@@ -107,7 +107,7 @@ def tool_catalog(output_schema):
 				"properties": {
 					"sku": {
 						"type": "string",
-						"description": "The seller SKU to enrich; also the name of its Amazon Listing.",
+						"description": "The seller SKU to enrich; also the name of its Amazon Product Listing.",
 					},
 				},
 				"required": ["sku"],
@@ -197,7 +197,7 @@ def tool_catalog(output_schema):
 					"sku": {
 						"type": "string",
 						"description": (
-							"The seller SKU being enriched (= its Amazon Listing name). "
+							"The seller SKU being enriched (= its Amazon Product Listing name). "
 							"The tool reads that listing's photos and resolves the "
 							"variant's own photo itself; if there are no photos, nothing "
 							"is done."

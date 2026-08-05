@@ -1,8 +1,8 @@
-// Adds an "Enrich Listing" button to the Amazon Listing form, which runs this
+// Adds an "Enrich Listing" button to the Amazon Product Listing form, which runs this
 // site's Amazon listing agent against the listing and links to the resulting
 // Amazon Enriched Listing for review.
 //
-// It sits on Amazon Listing because that is the doctype the agent actually reads.
+// It sits on Amazon Product Listing because that is the doctype the agent actually reads.
 // The Item form gets a lighter entry point that deep-links to the run-amazon-agent
 // page instead (public/js/item_enrich.js).
 //
@@ -16,7 +16,7 @@ const POLL_INTERVAL_MS = 3000;
 // form polling forever.
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
-frappe.ui.form.on("Amazon Listing", {
+frappe.ui.form.on("Amazon Product Listing", {
 	refresh(frm) {
 		// Nothing to enrich until the listing exists — the agent looks it up by name.
 		if (frm.is_new()) return;
