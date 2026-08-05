@@ -10,9 +10,9 @@ of it. A customer app changes it by dropping a single markdown file at:
     <customer_app>/agents/amazon_listing.md
 
 Whatever is in that file is appended to the vanilla prompt below, so it says what is
-true of that seller: who they are, their house style, their marketplaces and
-categories, and which image tool the agent should use. No registration, no hook, no
-config — the file being there is the whole mechanism.
+true of that seller: who they are, their house style, their brand name, and their
+marketplaces and categories. No registration, no hook, no config — the file being
+there is the whole mechanism.
 
 It may start with optional frontmatter, for the two things a prompt cannot express:
 
@@ -22,8 +22,9 @@ It may start with optional frontmatter, for the two things a prompt cannot expre
     ---
     Everything from here down is appended to the vanilla prompt.
 
-All tools are registered on every site. The prompt decides which get called, which
-is why picking image translation over image generation is a sentence, not a setting.
+All tools are registered on every site, and an override cannot add or remove one.
+What it changes is the copy: the brand name, the house voice, and any category rules
+the vanilla prompt cannot know.
 """
 
 import json
@@ -64,15 +65,19 @@ BASE_PROMPT = read_text("prompts/system.md")
 BASE_SCHEMA = json.loads(read_text("schemas/output.json"))
 
 _HANDLERS = f"{_APP}.tools.handlers"
-_IMAGE_GEN = f"{_APP}.tools.image_generation"
-_IMAGE_TRANS = f"{_APP}.tools.image_translation"
+_IMAGE = f"{_APP}.tools.image_prepare"
 
 
 # ── the tools ─────────────────────────────────────────────────────────────────
-# Every tool the listing agent has, keyed by tool_id. All of them are registered on
-# every site; the agent's prompt is what decides which ones it actually calls. That
-# is why a customer override is only a prompt — telling the agent to translate
-# supplier photos rather than retouch them needs no configuration.
+# Every tool the listing agent has, keyed by tool_id.
+#
+# There is exactly ONE image tool, and it is not optional in the way the Shopify
+# agent's pair is. Amazon treats the main image and the gallery differently — the
+# main tile must be the variant's own photo on a plain white background, the gallery
+# is the family's photos with their printed text translated — so "which image step"
+# is not a per-customer judgement call and is not left to the prompt. Offering a
+# free-form retouch step beside it would let a run produce a main image Amazon
+# suppresses, so no such step is registered.
 #
 # An entry may carry `input_option`, the per-request toggle the desk surfaces render
 # for it (see api.py).
@@ -141,41 +146,48 @@ def tool_catalog(output_schema):
 				"required": ["image_url"],
 			},
 		},
-		"generate_product_images": {
+		"prepare_product_images": {
 			"description": (
-				"Retouch the listing's existing photos: each one comes back cleaner — "
-				"even lighting, true colour, no glare or dust, a plain white "
-				"background — and otherwise unchanged. It does NOT compose new shots, "
-				"and you do NOT describe the imagery you want: there are no briefs and "
-				"no shot types, because the retouch instruction is fixed in the tool "
-				"and the photograph itself is the only description of the product that "
-				"may matter. Call it ONCE for the whole listing; it processes every "
-				"photo in one go. Pass `sku` (for a sku run — the tool reads the "
-				"listing's own photos) and `generate_images` copied verbatim from the "
-				"input (default false). For a URL-only product, pass the real photo "
-				"urls as `image_urls` instead. Whether anything is produced is decided "
-				"by the tool, NOT by you: it enhances ONLY when the listing already "
-				"has photos AND generate_images is true, and it never creates imagery "
-				"from scratch. Returns {images: [{source_url, url, note}, ...]}; copy "
-				"that list into the final `images` array VERBATIM. EXPECT url TO BE "
-				"null: the photos are enhanced in the background after this run "
-				"finishes and are attached to the listing then. That is success, not "
-				"failure — do NOT retry the tool, do NOT call it a second time, do NOT "
-				"list the images in needs_review, and do NOT describe them as missing "
-				"or failed anywhere in your output. Some entries may come back with a "
-				"real url and a note saying they were reused from an earlier run; copy "
-				"those verbatim too. If it returns an empty list with a note (the "
-				"listing has no photos, or the toggle is off), that is also expected — "
-				"set images to [] and record the note."
+				"Prepare this listing's photos for Amazon. It produces TWO kinds of "
+				"image in one call: the MAIN image — this variant's own photo, placed "
+				"on a plain white background, which is what a shopper sees in search "
+				"results — followed by the GALLERY, the family's remaining photos with "
+				"their printed foreign-language text translated into English. Call it "
+				"ONCE for the whole listing. You do NOT choose which photo is the main "
+				"one, you do NOT describe the imagery you want, and you do NOT reorder "
+				"the result: the tool resolves the variant's own photo itself and "
+				"returns the entries in the exact order they must appear on the "
+				"listing. Pass `sku` (for a sku run — the tool reads the listing's own "
+				"photos and the variant's) and `prepare_images` copied verbatim from "
+				"the input (default false). For a URL-only product, pass the photo URLs "
+				"as `image_urls` instead, first one treated as the main image. Whether "
+				"anything happens is decided by the tool, NOT by you: it runs ONLY when "
+				"the listing has photos AND prepare_images is true. Returns {images: "
+				"[{role, kind, source_url, url, note}, ...]}; copy that list into the "
+				"final `images` array VERBATIM, in the same order, INCLUDING each "
+				"entry's `role`. EXPECT url TO BE null: the photos are processed in the "
+				"background after this run finishes and are attached to the listing "
+				"then. That is success, not failure — do NOT retry the tool, do NOT "
+				"call it a second time, do NOT list the images in needs_review, and do "
+				"NOT describe them as missing or failed anywhere in your output. Some "
+				"entries MAY come back with a real url: those were processed by an "
+				"earlier run and reused instead of being paid for twice. A mix of real "
+				"urls and nulls in one result is normal. If the tool's note says the "
+				"variant had no dedicated photo, or that the main image could not be "
+				"placed on a white background, follow that note — those DO belong in "
+				"needs_review. If it returns an empty list with a note (no photos, or "
+				"the toggle is off), that is also expected — set images to [] and "
+				"record the note."
 			),
-			"handler": f"{_IMAGE_GEN}.generate_product_images",
+			"handler": f"{_IMAGE}.prepare_product_images",
 			"input_option": {
-				"fieldname": "generate_images",
-				"label": "Enrich images",
+				"fieldname": "prepare_images",
+				"label": "Prepare images for Amazon",
 				"description": (
-					"Retouch this listing's existing photos for cleaner lighting, "
-					"colour and background. Costs money per photo; turn off for a "
-					"faster, text-only enrichment."
+					"Puts this variant's own photo on a white background as the main "
+					"image and translates the rest of the gallery. Costs money per "
+					"image, and only works for photos reachable from the public "
+					"internet."
 				),
 				"default": 0,
 			},
@@ -186,82 +198,17 @@ def tool_catalog(output_schema):
 						"type": "string",
 						"description": (
 							"The seller SKU being enriched (= its Amazon Listing name). "
-							"The tool reads that listing's own photos; if it has none, "
-							"nothing is done."
+							"The tool reads that listing's photos and resolves the "
+							"variant's own photo itself; if there are no photos, nothing "
+							"is done."
 						),
 					},
-					"generate_images": {
+					"prepare_images": {
 						"type": "boolean",
 						"description": (
 							"The per-request opt-in toggle, copied verbatim from the "
-							"input (default false). Photos are enhanced only when this "
-							"is true AND the listing already has photos."
-						),
-					},
-					"image_urls": {
-						"type": "array",
-						"items": {"type": "string"},
-						"description": (
-							"Only for a URL-only product with no sku: the urls of that "
-							"product's real photos. Ignored when sku resolves to a "
-							"listing with photos."
-						),
-					},
-				},
-			},
-		},
-		"translate_product_images": {
-			"description": (
-				"Translate the text printed on the listing's supplier photos into "
-				"English — untranslated text on a photo is one of the things Amazon "
-				"suppresses a listing for. Call it ONCE for the whole listing; it "
-				"covers every photo in that one call. Whether images are actually "
-				"translated is decided by the tool itself, NOT by you: it runs ONLY "
-				"when the listing has photos AND translate_images is true. Pass `sku` "
-				"(for a sku run — the tool reads the listing's own photos) and "
-				"`translate_images` copied verbatim from the input (default false). "
-				"For a URL-only product, pass the photo URLs as `image_urls` instead. "
-				"Returns {images: [{source_url, url, note}, ...]}; copy the list "
-				"verbatim into the final `images` array. EXPECT url TO BE null: the "
-				"photos are translated in the background after this run finishes and "
-				"are attached to the listing then. That is success, not failure — do "
-				"NOT retry the tool, do NOT call it a second time, do NOT list the "
-				"images in needs_review, and do NOT describe them as missing or failed "
-				"anywhere in your output. Some entries MAY come back with a real url: "
-				"those are photos an earlier run already translated, reused instead of "
-				"being paid for twice. A mix of real urls and nulls in one result is "
-				"normal — copy them all verbatim exactly as returned. If it returns an "
-				"empty list with a note (no photos, or the toggle is off), that is "
-				"also expected — set images to [] and record the note."
-			),
-			"handler": f"{_IMAGE_TRANS}.translate_product_images",
-			"input_option": {
-				"fieldname": "translate_images",
-				"label": "Translate product images",
-				"description": (
-					"Sends each supplier photo to the image translation service. Costs "
-					"money per image, and only works for photos reachable from the "
-					"public internet."
-				),
-				"default": 0,
-			},
-			"parameters_schema": {
-				"type": "object",
-				"properties": {
-					"sku": {
-						"type": "string",
-						"description": (
-							"The seller SKU being enriched (= its Amazon Listing name). "
-							"The tool reads that listing's own photos; if the listing "
-							"has no photos, nothing is done."
-						),
-					},
-					"translate_images": {
-						"type": "boolean",
-						"description": (
-							"The per-request opt-in toggle, copied verbatim from the "
-							"input (default false). Images are translated only when "
-							"this is true AND the listing has photos."
+							"input (default false). Images are processed only when this "
+							"is true AND the listing has photos."
 						),
 					},
 					"image_urls": {
@@ -269,8 +216,8 @@ def tool_catalog(output_schema):
 						"items": {"type": "string"},
 						"description": (
 							"Only for a URL-only product with no sku: the photo URLs to "
-							"translate. Ignored when sku resolves to a listing with "
-							"photos."
+							"prepare, the first treated as the main image. Ignored when "
+							"sku resolves to a listing with photos."
 						),
 					},
 				},

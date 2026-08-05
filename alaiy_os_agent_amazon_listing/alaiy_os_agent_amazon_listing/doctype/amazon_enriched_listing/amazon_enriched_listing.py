@@ -116,21 +116,36 @@ class AmazonEnrichedListing(Document):
 	def _sync_images(self, listing_doc):
 		"""Replace the listing's images with the ones this run produced.
 
+		Order is the point of this method, not a side effect. Amazon shows the first
+		image as the search-results tile, and for a child variant that has to be the
+		variant's OWN photo — so the row whose role is `main` goes first and carries
+		`is_main`, and the gallery follows in its own order. A run whose main image
+		failed does NOT promote a gallery photo into its place: publishing the family's
+		generic shot as the tile is the exact failure this ordering exists to prevent,
+		so the listing keeps its current images and the reviewer is told.
+
 		Only rows that actually have a url count — a queued or failed image is not an
 		image. If none of them do, the listing keeps the photos it already has: an
 		enrichment that ran without an image step, or whose imagery failed, must never
 		leave a listing with no pictures at all.
-
-		The first produced image becomes the main image, which is the one Amazon shows
-		in search results.
 		"""
 		produced = [row for row in (self.images or []) if row.url]
 		if not produced:
 			return
 
+		main = next((row for row in produced if (row.role or "") == "main"), None)
+		gallery = [row for row in produced if row is not main]
+
+		if not main:
+			frappe.msgprint(
+				"This enrichment has no main image, so the listing's existing images "
+				"were left alone. Amazon shows the first image in search results and it "
+				"must be this variant's own photo — re-run the image step, or set one "
+				"row's Role to 'main', before approving the imagery."
+			)
+			return
+
 		listing_doc.set("images", [])
-		for idx, enriched_img in enumerate(produced):
-			listing_doc.append("images", {
-				"image_url": enriched_img.url,
-				"is_main": 1 if idx == 0 else 0,
-			})
+		listing_doc.append("images", {"image_url": main.url, "is_main": 1})
+		for row in gallery:
+			listing_doc.append("images", {"image_url": row.url, "is_main": 0})

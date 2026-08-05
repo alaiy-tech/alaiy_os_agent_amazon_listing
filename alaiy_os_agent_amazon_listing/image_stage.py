@@ -37,9 +37,10 @@ DEFAULT_QUEUE = "long"
 # plus the re-hosting of each result.
 JOB_TIMEOUT = 1800
 
-# The two steps stage two knows how to render, mapped to the module that owns each.
-GENERATE = "generate"
-TRANSLATE = "translate"
+# The step stage two knows how to render. One step, not two: the main image and the
+# gallery are different operations on the same product and are queued together, so
+# there is nothing to dispatch between — see tools/image_prepare.py.
+PREPARE = "prepare"
 
 
 def image_queue():
@@ -149,15 +150,10 @@ def _nudge_batches(sku):
 
 def _render(step, sku, work):
 	"""Dispatch to the module that owns this step. Returns the finished image rows."""
-	if step == GENERATE:
-		from alaiy_os_agent_amazon_listing.tools.image_generation import render_generated
+	if step == PREPARE:
+		from alaiy_os_agent_amazon_listing.tools.image_prepare import render_prepared
 
-		return render_generated(sku, work)
-
-	if step == TRANSLATE:
-		from alaiy_os_agent_amazon_listing.tools.image_translation import render_translated
-
-		return render_translated(sku, work)
+		return render_prepared(sku, work)
 
 	frappe.throw(f"Unknown image step '{step}'.")
 
@@ -165,14 +161,20 @@ def _render(step, sku, work):
 def _apply(sku, rendered):
 	"""Write the rendered urls onto the listing's image rows. Returns how many worked.
 
-	Rows are matched to what stage one already wrote — by `source_url`, the photo
-	each result came from, and by `kind` for any older row that carries one — and
-	appended if it is not there, so a rendered image is never silently thrown away.
+	Rows are matched to what stage one already wrote — by `source_url` WITHIN the same
+	`role` — and appended if not there, so a rendered image is never silently thrown
+	away. Role scoping is what keeps the two results for one shared photo apart: the
+	white-background main image and the translated gallery copy have the same
+	source_url and must never overwrite each other.
 
 	Appending is not an edge case: the rows are rebuilt by save_listing from what the
-	MODEL wrote down, and a model that dropped an entry would otherwise cost that
-	photo its result. Here the plan the tool queued wins, and the listing ends up with
-	the rows it should have regardless of what the model reported.
+	MODEL wrote down, and a model that dropped an entry — or its role — would otherwise
+	cost that photo its result, or worse, its place in the image order. Here the plan
+	the tool queued wins, and the listing ends up with the rows it should have
+	regardless of what the model reported.
+
+	The rows are then re-ordered main-first, because `idx` is the listing's image
+	order and an appended row would otherwise land after the gallery.
 	"""
 	doc = frappe.get_doc(ENRICHED_DOCTYPE, sku)
 	existing = list(doc.images or [])
@@ -181,11 +183,12 @@ def _apply(sku, rendered):
 	for image in rendered:
 		rows = _match(existing, image)
 		if not rows:
-			row = doc.append("images", {})
+			row = doc.append("images", {"role": image.get("role")})
 			existing.append(row)
 			rows = [row]
 
 		for row in rows:
+			row.role = image.get("role") or row.role
 			row.kind = image.get("kind") or row.kind
 			row.source_url = image.get("source_url") or row.source_url
 			row.brief = image.get("brief") or row.brief
@@ -194,19 +197,41 @@ def _apply(sku, rendered):
 		if image.get("url"):
 			produced += 1
 
+	_reorder(doc)
 	doc.save(ignore_permissions=True)
 	frappe.db.commit()
 	return produced
+
+
+def _reorder(doc):
+	"""Main image first, then the gallery in the order it was queued.
+
+	Amazon takes the first image as the search-results tile, and approval publishes
+	these rows in table order (see AmazonEnrichedListing._sync_images), so the order
+	here is not cosmetic.
+	"""
+	rows = sorted(doc.images or [], key=lambda r: (0 if (r.role or "") == "main" else 1, r.idx or 0))
+	for idx, row in enumerate(rows, start=1):
+		row.idx = idx
+	doc.set("images", rows)
 
 
 def _match(rows, image):
 	"""The row(s) this rendered image belongs in: the placeholders stage one wrote
 	for it, plus any row that already holds exactly this result.
 
+	Scoped to the rendered image's own role first. Without that, the main image and
+	the gallery copy of the same supplier photo match each other, and a translated
+	photo can end up as the listing's search-results tile.
+
 	Matching a row that already holds this url is what makes re-delivery a no-op: a
 	job queued only to reconcile rows an earlier run produced must not append a
 	second copy of every one of them.
 	"""
+	role = image.get("role")
+	if role:
+		rows = [row for row in rows if (row.get("role") or "gallery") == role]
+
 	for key in ("source_url", "kind"):
 		value = image.get(key)
 		if not value:

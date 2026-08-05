@@ -11,8 +11,7 @@
   "total_items",
   "batch_size",
   "col_break_request",
-  "generate_images",
-  "translate_images",
+  "prepare_images",
   "skip_enriched",
   "notes_section",
   "notes",
@@ -62,17 +61,10 @@
   },
   {
    "default": "0",
-   "description": "Runs the agent's image enhancement step for every listing. Costs money per image.",
-   "fieldname": "generate_images",
+   "description": "Runs the agent's image step for every listing: each variant's own photo becomes a white-background main image, and the rest of the gallery is translated. Costs money per image.",
+   "fieldname": "prepare_images",
    "fieldtype": "Check",
-   "label": "Enrich images"
-  },
-  {
-   "default": "0",
-   "description": "Runs the agent's image translation step for every listing. Costs money per image.",
-   "fieldname": "translate_images",
-   "fieldtype": "Check",
-   "label": "Translate product images"
+   "label": "Prepare images for Amazon"
   },
   {
    "default": "0",

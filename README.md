@@ -20,7 +20,7 @@ DocType from `alaiy_os_connector_amazon_sp_api`, keyed by seller **SKU**.
 |---|---|
 | Reads | `Amazon Listing` — title, ASIN, marketplace, listing status, condition, offer data, description, bullet points, keywords, images, and Amazon's own **suppression reasons** (the agent is told to fix the issues that name a field it produces) |
 | Writes | `Amazon Enriched Listing` (Needs Review) — title, bullet points, description, keywords, images, plus `needs_review` / `confidence` / `notes` |
-| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Listing`, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API. |
+| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Listing` **main image first**, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API. |
 
 Amazon's shape drives the differences from the Shopify agent: there are no variants,
 no category or product type and no metafields, so the output is the five content
@@ -36,7 +36,7 @@ rather than emptying it.
 | `prompts/system.md` | The system prompt. |
 | `schemas/output.json` | The output JSON Schema. |
 | `tools/handlers.py` | `get_product`, `view_image`, `get_reference_values`, `save_listing`. |
-| `tools/image_generation.py`, `tools/image_translation.py` | The two optional image steps. |
+| `tools/image_prepare.py` | The image step: white-background main image + translated gallery. |
 
 `setup/install.py` reads `agent_meta.py` and upserts the registry row on install and
 every migrate — you should not need to touch it.
@@ -46,9 +46,9 @@ every migrate — you should not need to touch it.
 A customer app changes this agent by dropping one markdown file at
 `<customer_app>/agents/amazon_listing.md`. Its contents are appended to the vanilla
 prompt; optional frontmatter sets `model` and `description`. There is no hook and no
-config — the file being there is the whole mechanism. Both image tools are always
-registered, so choosing between retouching photos and translating them is a sentence
-in that file, not a setting.
+config — the file being there is the whole mechanism. Use it for the brand name, the
+house voice, and category rules the vanilla prompt cannot know — not for the image
+step, which is fixed (see below).
 
 This app stores **no API keys**. Model and image access come from Alaiy OS core's
 `ai_client` seam.
@@ -86,13 +86,57 @@ POST /api/method/alaiy_os_agent_amazon_listing.api.bulk_enrich     {"skus": ["..
 GET  /api/method/alaiy_os_agent_amazon_listing.api.get_bulk_status {"batch": "AMZ-BULK-..."}
 ```
 
+### Content rules
+
+The prompt and schema encode the house Amazon rules, so a run either follows them or
+lands in review saying why it could not:
+
+- **Title** — `Brand Keyword | Type / Material | Feature | Application | Variant`,
+  120–150 characters, brand once at the front, unique per child variant.
+- **Bullets** — exactly 5, `UPPERCASE HEADING - description`, ~180–250 characters, in
+  the fixed order Material → Design → Applications → Capacity → Everyday Use.
+- **Description** — 180–250 words in four paragraphs, then a `Package Includes: /
+  Material: / Color: / Size: / Dimensions: / Capacity: / Usage:` block carrying only
+  the fields the data actually provides.
+- **Keywords** — backend search terms only, never repeating a word already in the
+  title or bullets, under ~250 bytes.
+- **Restricted words** — medical, absolute, unsupported-quality, environmental,
+  safety, promotional and shipping claims, competitor brands, third-party IP, ®/™ and
+  emojis are all listed in the prompt and refused unless the data substantiates them.
+- **Never invent a specification.** A spec the catalog does not record is expanded
+  around using features, functionality, applications and target users, and named in
+  `needs_review`. `get_product` shows the agent exactly which specs exist
+  (`variant_specifications`, read from the linked Item's specs) so "provided" is a
+  fact, not a guess.
+
 ### Images
 
-Both image steps run in a **second stage**, after the agent's run closes: the tool
-returns `url: null` placeholders and queues the rendering, so a run finishes in the
-time its LLM turns take rather than the minutes the image API takes. The enriched
-listing carries an `Image Status` while that happens. To give stage two its own
-worker pool, declare a queue under `workers` in `common_site_config.json` and set:
+There is **one** image step, and it produces two kinds of image in one call:
+
+| Role | What | How |
+|---|---|---|
+| `main` | **This variant's own photo** on a plain white background — the search-results tile | AlphaShop `extract_object(transparent=False)` |
+| `gallery` | The family's photos, in order | AlphaShop `translate_image` |
+
+The main photo is resolved in code, never by the model: `skuImage` from the linked
+Item's variant specs → the listing's `is_main` row → the family's first photo. The
+last of those is a fallback, and it is logged *and* pushed into `needs_review`,
+because it means the shopper sees a generic image instead of the variant they picked.
+The ordering survives the model: the plan travels with the queued job, and stage two
+re-derives the rows and re-sorts them main-first regardless of what the model echoed
+back.
+
+> **Not yet available:** the `ai_client` seam in `alaiy_os` implements
+> `translate_image` but **not** background extraction. Until `image_support()` reports
+> `extract` and the client grows `extract_object(url, transparent=False)`, the main
+> image is only translated, and the run says so in `notes` and `needs_review` rather
+> than shipping a main image Amazon will suppress. See `tools/image_prepare.py`.
+
+It runs in a **second stage**, after the agent's run closes: the tool returns
+`url: null` placeholders and queues the rendering, so a run finishes in the time its
+LLM turns take rather than the minutes the image APIs take. The enriched listing
+carries an `Image Status` while that happens. To give stage two its own worker pool,
+declare a queue under `workers` in `common_site_config.json` and set:
 
 ```json
 { "listing_image_queue": "<queue name>" }

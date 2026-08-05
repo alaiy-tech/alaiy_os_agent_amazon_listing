@@ -6,6 +6,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "role",
   "kind",
   "source_url",
   "url",
@@ -13,6 +14,16 @@
   "note"
  ],
  "fields": [
+  {
+   "columns": 1,
+   "default": "gallery",
+   "description": "'Main' is the image Amazon shows in search results — the variant's own photo, on a plain white background. 'Gallery' images follow it in order. Approval publishes the rows in this order, main first, so changing a role here changes what the shopper sees first.",
+   "fieldname": "role",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Role",
+   "options": "gallery\nmain"
+  },
   {
    "columns": 1,
    "description": "What this image is, in the image step's own vocabulary (e.g. 'enhanced' for a retouched photo, 'translated' for a reworked supplier photo).",
@@ -40,7 +51,7 @@
    "options": "URL"
   },
   {
-   "columns": 3,
+   "columns": 2,
    "description": "The instruction used to produce this image, for image steps that record one.",
    "fieldname": "brief",
    "fieldtype": "Small Text",

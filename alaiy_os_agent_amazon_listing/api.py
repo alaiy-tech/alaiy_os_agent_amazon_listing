@@ -68,7 +68,7 @@ def bulk_enrich(skus, notes=None, batch_size=None, skip_enriched=0, **toggles):
 
 	`skus` are Amazon Listing names (a list, or a JSON array over REST). Extra
 	keyword arguments are the agent's per-request toggles — whatever
-	`get_listing_agent` reports in `input_options`, e.g. `generate_images` — so this
+	`get_listing_agent` reports in `input_options`, e.g. `prepare_images` — so this
 	signature does not name a tool either.
 
 	The work happens on workers: poll `get_bulk_status`, or open the returned batch.

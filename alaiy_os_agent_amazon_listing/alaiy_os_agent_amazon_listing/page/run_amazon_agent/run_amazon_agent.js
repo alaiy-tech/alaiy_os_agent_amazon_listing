@@ -13,9 +13,8 @@
 //
 // The page is generic: it does not know an agent_id, and its per-request toggles are
 // rendered from whatever the agent's tools declare (api.get_listing_agent ->
-// input_options), each relayed into the run payload under its own fieldname. So
-// "enrich images" and "translate images" both appear here without this file
-// knowing either exists.
+// input_options), each relayed into the run payload under its own fieldname. So the
+// image toggle appears here without this file knowing it exists.
 //
 // The page is keyed on the seller SKU, which is the Amazon Listing's own name — the
 // agent has no notion of an item_code. An "Enrich Amazon Listing" button on the Item
@@ -520,10 +519,17 @@ class RunAgentPage {
 				? `<ul class="ra-bullet-list">${items.map((b) => `<li>${esc(b)}</li>`).join("")}</ul>`
 				: `<div class="ra-static-value">—</div>`;
 
-		// The title has a hard 200-character limit on Amazon, so show the count
-		// rather than letting a reviewer discover the truncation on Seller Central.
+		// The house rule is a 120-150 character title, and Amazon truncates past 150.
+		// Show the count rather than letting a reviewer discover it on Seller Central.
 		const title_len = (listing.title || "").length;
-		const title_count = `<span class="ra-char-count ${title_len > 200 ? "is-over" : ""}">${title_len}/200</span>`;
+		const title_off = title_len > 150 || title_len < 120;
+		const title_count = `<span class="ra-char-count ${title_off ? "is-over" : ""}">${title_len}/150</span>`;
+
+		// Exactly five bullets is the rule, so say when there are not five.
+		const bullets = listing.bullet_points || [];
+		const bullet_count = `<span class="ra-char-count ${
+			bullets.length === 5 ? "" : "is-over"
+		}">${bullets.length}/5</span>`;
 
 		// Images the image step returned — empty when the agent has none, when
 		// the toggle was off, or when the listing had no photos. A tile whose result
@@ -613,7 +619,7 @@ class RunAgentPage {
 							<input type="text" class="form-control" value="${esc(listing.title)}" placeholder="${__("Generated title")}">
 						</div>
 						<div class="ra-field-block">
-							<div class="control-label">${__("Bullet Points")}</div>
+							<div class="control-label">${__("Bullet Points")} ${bullet_count}</div>
 							${bullet_list(listing.bullet_points)}
 						</div>
 						<div class="ra-field-block">

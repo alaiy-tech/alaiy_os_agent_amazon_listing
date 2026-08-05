@@ -4,38 +4,55 @@
  "properties": {
   "title": {
    "type": "string",
-   "description": "The product title, for the listing's `title`. It must READ naturally and at the same time contain the words a shopper would actually type to find this product. The pattern that works on Amazon is Brand + Product Type + defining specs (material, size, quantity, colour) + key use case, front-loading the most searched term. Title Case, at most 200 characters. No keyword stuffing, no repetition, no ALL CAPS, no promotional words, no price or shipping claims, no URLs or emojis."
-  },
-  "description": {
-   "type": "string",
-   "description": "The product description, for the listing's `description`. 2-4 short paragraphs of plain text (no HTML, no markdown), at most 2000 characters. Say what the product is, what it is made of, how it is used, and what is included. The search terms a shopper would use must appear naturally in the prose — worked into real sentences, never listed or repeated for their own sake. Never invent specifications not supported by the data or the photos."
+   "minLength": 100,
+   "maxLength": 150,
+   "description": "The product title, for the listing's `title`. Format: 'Brand Primary Product Keyword | Product Type / Material | Key Feature | Primary Application / Use Case | Variant Specification', using ' | ' as the delimiter. 120-150 characters — do not exceed 150. The highest-volume search keyword goes immediately after the brand, and the brand appears ONCE, at the start. Include variant specifications (Color, Size, Capacity, Dimensions, Pack Size, Material, Pattern, Style, Model) only when they are explicitly provided; where they are not, expand using product features and intended applications rather than inventing a spec. Every child variant gets a unique title from its own specifications. Readable, not keyword-stuffed. No emojis, no ALL CAPS, no promotional or restricted words, no seller name, phone number, website or price."
   },
   "bullet_points": {
    "type": "array",
+   "minItems": 5,
    "maxItems": 5,
    "items": {
     "type": "string",
-    "maxLength": 500
+    "minLength": 150,
+    "maxLength": 300
    },
-   "description": "The listing's bullet points (Amazon's 'key product features'), for the listing's `bullet_points` table, in the order they should appear. At most five. Each one is a single distinct selling point written benefit-first and then backed by the specification that supports it — aim for 150-250 characters, plain text, no leading dashes or bullet glyphs, no ALL CAPS beyond a short leading phrase, no promotional or price claims. Never repeat the same point in two bullets."
+   "description": "EXACTLY five bullet points, for the listing's `bullet_points` table, in this fixed order: (1) Material / Construction, (2) Design, (3) Multipurpose Applications, (4) Capacity / Functionality, (5) Everyday Use. Each is an UPPERCASE feature heading, then ' - ', then the description — e.g. 'LARGE CAPACITY - Main compartment fits A4 documents, laptop up to 14 inches, and daily essentials'. Aim for 180-250 characters each. Work high-volume Amazon search keywords in naturally, never repeating a keyword or feature across bullets. Plain text, professional and easy to read. Include variant specifications only when explicitly provided."
+  },
+  "description": {
+   "type": "string",
+   "maxLength": 2000,
+   "description": "The product description, for the listing's `description`. 180-250 words of plain text (no HTML, no markdown), in four paragraphs — (1) Product Overview using the primary product keyword, (2) Material & Features, (3) Applications & Use Cases, (4) Everyday Use — followed by a summary block on its own lines: 'Package Includes:', 'Material:', 'Color:', 'Size:', 'Dimensions:', 'Capacity:', 'Usage:'. Include ONLY the summary fields the product information actually provides; omit the rest of the lines entirely. Never invent, assume or infer a specification. No exaggeration and no unsupported performance claims."
   },
   "keywords": {
    "type": "array",
    "items": {
     "type": "string"
    },
-   "description": "Amazon BACKEND search terms, for the listing's `keywords` table — invisible to the shopper. Put here only the terms that did NOT earn a place in the title or bullets: synonyms, alternate and regional spellings, common misspellings, and related use cases. Never repeat a word that already appears in the title or bullets; Amazon already indexes those and a repeat wastes the byte budget. No competitor brand names, no ASINs, no subjective claims ('best', 'cheapest'), no temporary statements ('new', 'sale'). Keep the whole set under roughly 250 bytes. Reuse a keyword from get_reference_values verbatim when it applies, so the catalog stays consistent."
+   "description": "Amazon BACKEND search terms, for the listing's `keywords` table — invisible to the shopper. Put here only the terms that did NOT earn a place in the title or bullets: synonyms, alternate and regional spellings, common misspellings, and related use cases. Never repeat a word that already appears in the title or bullets; Amazon already indexes those and a repeat wastes the byte budget. No competitor brand names, no third-party IP, no ASINs, no subjective claims ('best', 'cheapest'), no temporary statements ('new', 'sale'). Keep the whole set under roughly 250 bytes. Reuse a keyword from get_reference_values verbatim when it applies, so the catalog stays consistent."
   },
   "images": {
    "type": "array",
-   "description": "Images produced by the image step, for the listing's `images` table, in the order the tool returned them — copy its result entries verbatim. An empty array when no image step ran, when the product has no photos, or when the per-request image toggle was off.",
+   "description": "Images produced by the image step, for the listing's `images` table, in the order the tool returned them — copy its result entries VERBATIM, including each entry's `role`. The first entry is always the main image (role 'main'); the rest are the gallery in order. An empty array when no image step ran, when the product has no photos, or when the per-request image toggle was off.",
    "items": {
     "type": "object",
     "additionalProperties": false,
     "properties": {
+     "role": {
+      "type": [
+       "string",
+       "null"
+      ],
+      "enum": [
+       "main",
+       "gallery",
+       null
+      ],
+      "description": "'main' for the image Amazon shows in search results — the variant's own photo, on a plain white background. 'gallery' for the remaining family images, in order. Copied verbatim from the image step's result entry; never decided by you."
+     },
      "kind": {
       "type": "string",
-      "description": "What this image is, in the vocabulary your instructions give."
+      "description": "What was done to this image, in the image step's own vocabulary (e.g. 'white-background', 'translated')."
      },
      "source_url": {
       "type": "string",
@@ -63,7 +80,7 @@
    "items": {
     "type": "string"
    },
-   "description": "Human-readable names of fields that could NOT be confidently filled and must be completed by the admin before publish (e.g. 'Material', 'Bullet 5', 'Search Terms')."
+   "description": "Human-readable names of fields that could NOT be confidently filled and must be completed by the admin before publish (e.g. 'Material', 'Bullet 5', 'Search Terms', 'Main image background')."
   },
   "confidence": {
    "type": "string",
@@ -79,13 +96,13 @@
    "items": {
     "type": "string"
    },
-   "description": "Anything the admin should know: assumptions made, ambiguities, which of the listing's Amazon issues this enrichment addresses, which it cannot (pricing, inventory, category approval, compliance), or conflicts between the product text and the photos."
+   "description": "Anything the admin should know: assumptions made, ambiguities, which of the listing's Amazon issues this enrichment addresses, which it cannot (pricing, inventory, category approval, compliance), what substantiates any otherwise-restricted claim you used, or conflicts between the product text and the photos."
   }
  },
  "required": [
   "title",
-  "description",
   "bullet_points",
+  "description",
   "keywords",
   "images",
   "needs_review",

@@ -83,6 +83,132 @@ def primary_listing_image_url(listing):
 	return urls[0] if urls else None
 
 
+# ── the image plan: which photo is the main one ──────────────────────────────
+# Amazon shows ONE image in search results, and for a child variant it has to be that
+# variant's own photo — a shopper who picked "black" must not be shown the family's
+# generic shot. That is a rule about which photo, not about how it is processed, so it
+# is resolved here next to the rest of the listing reads rather than inside the image
+# tool.
+#
+# Where the variant's own photo comes from, in order:
+#
+#   1. `skuImage` on the linked Item's variant specs. This is the authoritative
+#      per-variant photo in the sourcing data. It arrives as a custom field
+#      (`ng_specs_json`) owned by the customer app that ingests it, so it is read
+#      defensively — a bench without that app simply falls through.
+#   2. The Amazon Listing's own row flagged `is_main`.
+#   3. The first family photo — a fallback that IS logged and reported, because it
+#      means the shopper sees a generic image where they should have seen theirs.
+
+# The custom field the sourcing app puts on Item. Absent on a bench without it.
+_ITEM_SPECS_FIELD = "ng_specs_json"
+
+
+def image_plan(main, gallery, main_fallback=False):
+	"""The ordered plan the image step works from: main first, then the gallery.
+
+	`targets` is what travels with the queued job — one entry per (photo, role) pair,
+	in listing order — so stage two writes the listing's image rows from the plan
+	rather than from whatever the model echoed back.
+
+	A photo that is both the variant's own and the family's first appears twice, once
+	per role, on purpose: the two roles want different processing (white background vs
+	translated) and so are two different results.
+	"""
+	targets = []
+	if main:
+		targets.append({"role": "main", "source_url": main})
+	for url in gallery:
+		targets.append({"role": "gallery", "source_url": url})
+	return {"targets": targets, "main": main, "gallery": list(gallery), "main_fallback": main_fallback}
+
+
+def item_variant_specs(item_code):
+	"""The variant's specifications from the linked Item, as {name: value}.
+
+	Amazon's copy rules turn on these: a spec that IS provided must appear in the
+	title, bullets and description, and one that is not must never be invented. So the
+	agent is shown exactly what the catalog records and nothing more.
+
+	Same guarded read as _item_specs_image — the field belongs to the sourcing app.
+	"""
+	specs = _item_specs(item_code)
+	out = {}
+	for spec in specs:
+		if not isinstance(spec, dict):
+			continue
+		name = (spec.get("attributeName") or "").strip()
+		value = spec.get("value")
+		if name and value:
+			out[name] = value
+	return out
+
+
+def _item_specs(item_code):
+	"""The linked Item's raw variant specs list, or [] when unavailable."""
+	import json
+
+	if not item_code or not frappe.db.has_column("Item", _ITEM_SPECS_FIELD):
+		return []
+	raw = frappe.db.get_value("Item", item_code, _ITEM_SPECS_FIELD)
+	if not raw:
+		return []
+	try:
+		specs = json.loads(raw)
+	except (ValueError, TypeError):
+		return []
+	return specs if isinstance(specs, list) else []
+
+
+def _item_specs_image(item_code):
+	"""The variant's own `skuImage` from the linked Item's specs, or None.
+
+	The specs field is a JSON list of {attributeId, attributeName, value, skuImage}.
+	Guarded end to end: the field belongs to the sourcing app and may not exist, and a
+	malformed blob must cost this listing its variant photo, not its whole enrichment.
+	"""
+	for spec in _item_specs(item_code):
+		if isinstance(spec, dict) and spec.get("skuImage"):
+			return spec["skuImage"]
+	return None
+
+
+def resolve_image_plan(listing):
+	"""The image plan for one Amazon Listing: the variant's photo, then the family's.
+
+	The gallery is the listing's remaining photos in table order. The variant photo is
+	NOT removed from the gallery when it is also a family photo — Amazon's gallery is
+	the family's images and the main tile is separate, so the same photo legitimately
+	appears in both, processed differently for each.
+
+	Falls back to the family's first photo when the variant has none, and says so in
+	`main_fallback` so the tool can log it and put it in front of a human.
+	"""
+	family = listing_image_urls(listing)
+	main = _item_specs_image(listing.get("product")) or None
+
+	if not main:
+		# The connector's own main flag is the next best statement of "this is the
+		# photo for this listing", and listing_image_urls already sorts it first.
+		main = family[0] if family else None
+		fallback = bool(main)
+	else:
+		fallback = False
+
+	if fallback and main:
+		frappe.log_error(
+			title=f"Amazon listing images: no variant photo for {listing.name}",
+			message=(
+				f"{listing.name} has no skuImage on its linked Item "
+				f"({listing.get('product') or 'no item'}), so the family's first photo "
+				f"({main}) was used as the main image. The shopper will see a generic "
+				"image rather than the variant they selected."
+			),
+		)
+
+	return image_plan(main=main, gallery=family, main_fallback=fallback)
+
+
 def get_listing(sku):
 	"""The Amazon Listing for `sku`, or throw a useful message."""
 	if not frappe.db.exists(LISTING_DOCTYPE, sku):
@@ -152,6 +278,7 @@ def get_product(sku):
 		"keywords": [
 			row.get("keyword") for row in (listing.get("keywords") or []) if row.get("keyword")
 		],
+		"variant_specifications": item_variant_specs(listing.get("product")),
 		"image_urls": listing_image_urls(listing),
 		"primary_image_url": primary_listing_image_url(listing),
 		"issues": [
@@ -174,6 +301,19 @@ def get_product(sku):
 			"text": "Amazon Listing data (JSON):\n" + frappe.as_json(data),
 		}
 	]
+	if data["variant_specifications"]:
+		blocks.append({
+			"type": "text",
+			"text": (
+				"`variant_specifications` above is what the catalog actually records for "
+				"THIS variant. Every one of those values must appear naturally in the "
+				"title, the bullets and the description. Any specification NOT listed "
+				"there is not available — do not invent, assume or infer it; expand the "
+				"copy with features, functionality, applications and target users "
+				"instead, and add the missing field to needs_review."
+			),
+		})
+
 	if data["issues"]:
 		blocks.append({
 			"type": "text",
@@ -364,9 +504,12 @@ def save_listing(listing, sku=None):
 		doc.append("keywords", {"keyword": keyword})
 
 	# rebuild the image child table from whatever the image tool produced
+	# `role` is what orders the listing's images on approval — the main image first,
+	# then the gallery — so it is persisted even though the model only ever copies it.
 	doc.set("images", [])
 	for img in (listing.get("images") or []):
 		doc.append("images", {
+			"role": img.get("role") or "gallery",
 			"kind": img.get("kind"),
 			"source_url": img.get("source_url"),
 			"url": img.get("url"),
