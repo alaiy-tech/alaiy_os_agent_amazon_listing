@@ -16,26 +16,46 @@ const POLL_INTERVAL_MS = 3000;
 // form polling forever.
 const POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
+// This doctype belongs to the Amazon connector, which registers its own `refresh`
+// handler for "Push Update to Amazon", "Sync from Amazon" and "End Listing".
+// Frappe runs every registered handler for an event in sequence, in installed-app
+// order, and an exception in one stops the ones behind it — so a throw in here can
+// silently delete the connector's buttons. Nothing in this handler is allowed to
+// escape: the agent's own button is worth less than the connector's still working.
 frappe.ui.form.on("Amazon Product Listing", {
 	refresh(frm) {
-		// Nothing to enrich until the listing exists — the agent looks it up by name.
-		if (frm.is_new()) return;
+		try {
+			add_enrich_buttons(frm);
+		} catch (e) {
+			// eslint-disable-next-line no-console
+			console.error("Amazon listing agent: could not add its buttons", e);
+		}
+	},
+});
 
+function add_enrich_buttons(frm) {
+	// Nothing to enrich until the listing exists — the agent looks it up by name.
+	if (frm.is_new()) return;
+
+	// `alaiy.amazon_listing_agent` comes from app_include_js. If that asset has not
+	// been built yet, reaching through it throws — hence the guard as well as the
+	// try/catch above.
+	if (window.alaiy && alaiy.amazon_listing_agent) {
 		alaiy.amazon_listing_agent.get().then((agent) => {
 			if (!agent) return;
 			frm.add_custom_button(__("Enrich Listing"), () => prompt_and_run(frm, agent));
 		});
+	}
 
-		// Only offer the review shortcut once there is something to review.
-		frappe.db.exists(ENRICHED_DOCTYPE, frm.doc.name).then((exists) => {
-			if (!exists || frm.__listing_review_btn) return;
-			frm.__listing_review_btn = true;
-			frm.add_custom_button(__("View Enriched Listing"), () =>
-				frappe.set_route("Form", ENRICHED_DOCTYPE, frm.doc.name)
-			);
-		});
-	},
-});
+	// Only offer the review shortcut once there is something to review.
+	frappe.db.exists(ENRICHED_DOCTYPE, frm.doc.name).then((exists) => {
+		if (!exists || frm.__listing_review_btn) return;
+		frm.__listing_review_btn = true;
+		frm.add_custom_button(__("View Enriched Listing"), () =>
+			frappe.set_route("Form", ENRICHED_DOCTYPE, frm.doc.name)
+		);
+	});
+}
 
 function prompt_and_run(frm, agent) {
 	const fields = alaiy.amazon_listing_agent.option_fields(agent);

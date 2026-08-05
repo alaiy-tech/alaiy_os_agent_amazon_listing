@@ -3,21 +3,48 @@
 //
 // The run itself is the backend's job (api.bulk_enrich -> bulk.py). This only
 // collects the selection and opens the batch, which shows its own live progress.
+//
+// MERGED onto whatever is already registered, never assigned over it.
+// `frappe.listview_settings[dt]` is one plain object per doctype, and the Amazon
+// connector owns this one: its `onload` adds "Sync All from Amazon" and "Reconcile
+// All from Amazon", and it also supplies `add_fields` and `get_indicator` for the
+// status colours and quick filters. A bare `frappe.listview_settings[dt] = {...}`
+// here replaces that object wholesale, and since this app's list script loads after
+// the connector's, every one of those disappears the moment the agent is installed.
+// So: keep the existing settings, and wrap `onload` so both run.
 
-frappe.listview_settings["Amazon Product Listing"] = {
-	onload(listview) {
-		alaiy.amazon_listing_agent.get().then((agent) => {
-			if (!agent) return;
-			// Lands in the standard Actions menu, which the list view reveals once
-			// rows are ticked.
-			listview.page.add_actions_menu_item(
-				__("Enrich Listings"),
-				() => prompt_and_run(listview, agent),
-				false
-			);
-		});
-	},
-};
+(function () {
+	const DOCTYPE = "Amazon Product Listing";
+	const existing = frappe.listview_settings[DOCTYPE] || {};
+	const prior_onload = existing.onload;
+
+	frappe.listview_settings[DOCTYPE] = Object.assign({}, existing, {
+		onload(listview) {
+			// Theirs first, and never behind our failure: an exception on our side
+			// must not cost the connector its buttons (which is the whole bug this
+			// block exists to fix).
+			if (typeof prior_onload === "function") {
+				prior_onload.call(this, listview);
+			}
+
+			// `alaiy.amazon_listing_agent` comes from app_include_js. If that asset
+			// has not been built yet, reaching through it would throw here and take
+			// the rest of the list view with it.
+			if (!window.alaiy || !alaiy.amazon_listing_agent) return;
+
+			alaiy.amazon_listing_agent.get().then((agent) => {
+				if (!agent) return;
+				// Lands in the standard Actions menu, which the list view reveals once
+				// rows are ticked.
+				listview.page.add_actions_menu_item(
+					__("Enrich Listings"),
+					() => prompt_and_run(listview, agent),
+					false
+				);
+			});
+		},
+	});
+})();
 
 function prompt_and_run(listview, agent) {
 	const skus = listview.get_checked_items(true);
