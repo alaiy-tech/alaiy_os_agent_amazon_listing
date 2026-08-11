@@ -268,31 +268,27 @@ def _collect_image_blocks(listing):
 
 
 def _product_type_block(product_type):
-	"""What to tell the model about the listing's product type.
+	"""What to tell the model about the listing's product type: the category, only.
 
-	Not a field the model fills, so this is context rather than an instruction to
-	answer. Either Amazon has already classified this listing — in which case the
-	copy has a category to be written for — or it has not, and the type will be
-	derived from the title the model is about to write. The second case is the
-	one worth saying out loud: it makes the title's first job (naming what the
-	product actually is) load-bearing rather than stylistic.
+	Classification is deterministic — `_save_product_type` derives it from the
+	finished title — so how and when that happens is not the model's business and
+	is not described here. The one thing worth spending tokens on is the category
+	itself, which a static prompt cannot name because it differs per listing, and
+	which genuinely changes the copy: a TOWEL and a POWER_TOOL want different
+	specifications and different words.
+
+	A listing with no product type gets nothing at all. There is no category to
+	write to, and the behaviour that would matter — name the product plainly in
+	the title — is a title rule, so it lives in the title rules.
 	"""
-	if product_type:
-		return (
-			f"This listing's Amazon product type is `{product_type}`. Write the copy for "
-			"that category: the specifications that matter there, and the words a "
-			"shopper in it searches with, are the ones to use. Do not restate the "
-			"product type as a field in your output — it is already settled."
-		)
+	if not product_type:
+		return None
 
 	return (
-		"This listing has NO Amazon product type yet, and every update Amazon accepts "
-		"has to declare one. It will be determined from the TITLE YOU WRITE, after you "
-		"save — not from the title above. So make the title say plainly what the "
-		"product is: lead with the plain product noun a shopper would use ('Bath "
-		"Towel', 'Cabin Suitcase'), not a brand or a benefit. Do not output a product "
-		"type field of your own; naming the product clearly in the title is how you "
-		"set it."
+		f"This listing sells as Amazon product type `{product_type}`. Write the copy for "
+		"that category: the specifications that matter there, and the words a shopper in "
+		"it searches with, are the ones to use. If the product is plainly NOT that thing, "
+		"describe what it actually is and say so in `notes` — a reviewer settles it."
 	)
 
 
@@ -315,12 +311,11 @@ def get_product(sku):
 	to use as an edit base) are returned, so an image tool has whichever it needs
 	without a second read.
 
-	`product_type` is Amazon's own category for this listing, and it is context the
-	copy depends on — a TOWEL and a POWER_TOOL want different bullets. Only the
-	value already on the listing is reported here. A listing that has none is NOT
-	classified at this point: that lookup runs on the enriched title at save time,
-	because the product type has to match the copy that will actually be published
-	(see product_type.py).
+	`product_type` is the category this listing sells in today, and it is context
+	the copy depends on — a TOWEL and a POWER_TOOL want different bullets. It is
+	reported, never looked up: classification runs on the enriched title at save
+	time, for every listing, because the product type has to match the copy that
+	will actually be published (see product_type.py).
 	"""
 	listing = get_listing(sku)
 
@@ -383,7 +378,9 @@ def get_product(sku):
 			),
 		})
 
-	blocks.append({"type": "text", "text": _product_type_block(data["product_type"])})
+	product_type_note = _product_type_block(data["product_type"])
+	if product_type_note:
+		blocks.append({"type": "text", "text": product_type_note})
 
 	if data["variant_specifications"]:
 		blocks.append({
@@ -502,7 +499,7 @@ def _save_product_type(doc, source_listing):
 	"""Classify the enrichment, from the title it just produced.
 
 	This is deliberately the LAST thing the flow does with a product type and the
-	FIRST time Amazon is asked. The question put to Amazon is "what is this
+	only time Amazon is asked. The question put to Amazon is "what is this
 	listing?" — and the honest form of that question uses the title that is about
 	to be published, not the raw one the agent was handed. Asking earlier would
 	classify a listing that no longer exists by the time anything is written, and
@@ -512,6 +509,11 @@ def _save_product_type(doc, source_listing):
 	It follows that the model does not answer this at all. It is derived, not
 	produced: the agent's only influence is that it wrote a title saying what the
 	product is, which is the influence that should count.
+
+	Amazon is asked even when the listing already has a type, so a classification
+	the rewrite has outgrown gets noticed. When the answer differs from what the
+	listing publishes as today, that goes to `needs_review` — a recategorisation
+	is a decision about a live listing and belongs to a human, not to a run.
 
 	`product_type_suggestions` is stored either way. It is what the Desk form
 	offers as alternatives, and it is the record of what Amazon said about this
@@ -533,7 +535,17 @@ def _save_product_type(doc, source_listing):
 	doc.product_type_source = resolved["source"]
 
 	if not resolved["product_type"]:
-		doc.needs_review = "\n".join(filter(None, [doc.needs_review, "Product type"]))
+		flag = "Product type"
+	elif product_types.disagrees(resolved):
+		flag = (
+			f"Product type (this listing publishes as '{resolved['existing']}', but "
+			f"Amazon classifies the new title as '{resolved['product_type']}' — confirm "
+			"which is right before approving)"
+		)
+	else:
+		return
+
+	doc.needs_review = "\n".join(filter(None, [doc.needs_review, flag]))
 
 
 def save_listing(listing, sku=None):
