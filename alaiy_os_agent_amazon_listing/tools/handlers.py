@@ -31,6 +31,7 @@ DocType in "Needs Review" status, for the admin to edit and approve.
 
 import frappe
 
+from alaiy_os_agent_amazon_listing import product_type as product_types
 from alaiy_os_agent_amazon_listing.tools import images
 
 # Cap how many photos we send to the model to keep token/latency cost bounded.
@@ -266,6 +267,35 @@ def _collect_image_blocks(listing):
 	return blocks
 
 
+def _product_type_block(product_type):
+	"""What to tell the model about the listing's product type.
+
+	Not a field the model fills, so this is context rather than an instruction to
+	answer. Either Amazon has already classified this listing — in which case the
+	copy has a category to be written for — or it has not, and the type will be
+	derived from the title the model is about to write. The second case is the
+	one worth saying out loud: it makes the title's first job (naming what the
+	product actually is) load-bearing rather than stylistic.
+	"""
+	if product_type:
+		return (
+			f"This listing's Amazon product type is `{product_type}`. Write the copy for "
+			"that category: the specifications that matter there, and the words a "
+			"shopper in it searches with, are the ones to use. Do not restate the "
+			"product type as a field in your output — it is already settled."
+		)
+
+	return (
+		"This listing has NO Amazon product type yet, and every update Amazon accepts "
+		"has to declare one. It will be determined from the TITLE YOU WRITE, after you "
+		"save — not from the title above. So make the title say plainly what the "
+		"product is: lead with the plain product noun a shopper would use ('Bath "
+		"Towel', 'Cabin Suitcase'), not a brand or a benefit. Do not output a product "
+		"type field of your own; naming the product clearly in the title is how you "
+		"set it."
+	)
+
+
 # ── tools ─────────────────────────────────────────────────────────────────────
 
 
@@ -284,6 +314,13 @@ def get_product(sku):
 	Both `image_urls` (all photos, main first) and `primary_image_url` (the best one
 	to use as an edit base) are returned, so an image tool has whichever it needs
 	without a second read.
+
+	`product_type` is Amazon's own category for this listing, and it is context the
+	copy depends on — a TOWEL and a POWER_TOOL want different bullets. Only the
+	value already on the listing is reported here. A listing that has none is NOT
+	classified at this point: that lookup runs on the enriched title at save time,
+	because the product type has to match the copy that will actually be published
+	(see product_type.py).
 	"""
 	listing = get_listing(sku)
 
@@ -293,6 +330,7 @@ def get_product(sku):
 		"asin": listing.get("asin"),
 		"item_code": listing.get("product"),
 		"marketplace": listing.get("marketplace"),
+		"product_type": product_types.existing(listing),
 		"listing_status": listing.get("listing_status"),
 		"is_variation_parent": bool(listing.get("is_variation_parent")),
 		"parent_asin": listing.get("parent_asin"),
@@ -344,6 +382,8 @@ def get_product(sku):
 				"duplicate-listing problem, not a style one."
 			),
 		})
+
+	blocks.append({"type": "text", "text": _product_type_block(data["product_type"])})
 
 	if data["variant_specifications"]:
 		blocks.append({
@@ -458,6 +498,44 @@ def _flatten(value):
 	return frappe.as_json(value)
 
 
+def _save_product_type(doc, source_listing):
+	"""Classify the enrichment, from the title it just produced.
+
+	This is deliberately the LAST thing the flow does with a product type and the
+	FIRST time Amazon is asked. The question put to Amazon is "what is this
+	listing?" — and the honest form of that question uses the title that is about
+	to be published, not the raw one the agent was handed. Asking earlier would
+	classify a listing that no longer exists by the time anything is written, and
+	a product type that disagrees with the title beside it is exactly what Amazon
+	rejects.
+
+	It follows that the model does not answer this at all. It is derived, not
+	produced: the agent's only influence is that it wrote a title saying what the
+	product is, which is the influence that should count.
+
+	`product_type_suggestions` is stored either way. It is what the Desk form
+	offers as alternatives, and it is the record of what Amazon said about this
+	title on the day it was asked.
+	"""
+	# Says that what follows is a run's answer, not a reviewer's edit — the
+	# doctype uses it to decide whether a changed product type is a human
+	# override (see AmazonEnrichedListing._record_product_type_override).
+	doc.flags.from_agent = True
+
+	# doc.title, not listing["title"]: the same value, but read back after the
+	# rest of save_listing has settled it, so the type is classified from exactly
+	# what a reviewer will see.
+	resolved = product_types.resolve(source_listing, doc.title)
+
+	doc.product_type = resolved["product_type"]
+	doc.product_type_display = resolved["product_type_display"]
+	doc.product_type_suggestions = frappe.as_json(resolved["suggestions"])
+	doc.product_type_source = resolved["source"]
+
+	if not resolved["product_type"]:
+		doc.needs_review = "\n".join(filter(None, [doc.needs_review, "Product type"]))
+
+
 def save_listing(listing, sku=None):
 	"""
 	Persist an enriched listing into the shared Amazon Enriched Listing DocType for
@@ -471,8 +549,8 @@ def save_listing(listing, sku=None):
 
 	Every field written here corresponds to a field on the Amazon Product Listing itself
 	(title -> title, description -> description, bullet_points -> bullet_points,
-	keywords -> keywords, images -> images), plus the three review fields the
-	approval step needs. The agent produces nothing else.
+	keywords -> keywords, images -> images, product_type -> product_type), plus the
+	three review fields the approval step needs. The agent produces nothing else.
 
 	List-valued fields (needs_review, notes) are flattened to one-per-line text for a
 	readable Desk form. The ordered parts — the bullets and the keywords — are written
@@ -510,6 +588,8 @@ def save_listing(listing, sku=None):
 	# list-valued fields -> one item per line for a readable Desk form
 	doc.needs_review = "\n".join(listing.get("needs_review") or [])
 	doc.notes = "\n".join(listing.get("notes") or [])
+
+	_save_product_type(doc, get_listing(sku))
 
 	# the ordered content -> pretty JSON; whole payload kept verbatim for audit
 	doc.bullets_json = frappe.as_json(listing.get("bullet_points") or [])

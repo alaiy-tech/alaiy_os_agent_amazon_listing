@@ -12,6 +12,9 @@
   "confidence",
   "col_break_source",
   "title",
+  "product_type",
+  "product_type_display",
+  "product_type_source",
   "content_section",
   "bullet_points",
   "description",
@@ -29,6 +32,7 @@
   "raw_section",
   "bullets_json",
   "keywords_json",
+  "product_type_suggestions",
   "output_json"
  ],
  "fields": [
@@ -72,6 +76,29 @@
    "fieldname": "title",
    "fieldtype": "Small Text",
    "label": "Title"
+  },
+  {
+   "description": "Amazon's product type for this listing, e.g. TOWEL. Every update Amazon accepts has to declare one, so a listing without it cannot be published to at all. Approval fills it in on the Amazon Product Listing when that listing has none — pick from the suggestions below, or type an Amazon product type in.",
+   "fieldname": "product_type",
+   "fieldtype": "Data",
+   "in_standard_filter": 1,
+   "label": "Product Type"
+  },
+  {
+   "description": "Amazon's own display name for the product type, when it gave one. A label only — `product_type` is the value that gets published.",
+   "fieldname": "product_type_display",
+   "fieldtype": "Data",
+   "label": "Product Type (Display Name)",
+   "read_only": 1
+  },
+  {
+   "default": "none",
+   "description": "Where the product type came from. `listing` is Amazon's own value, already on the listing, and is settled. `suggested` is Amazon's best match for the ENRICHED title, which is a good answer and not a confirmed one. `reviewer` means a human typed or picked this one, which outranks both. `none` means nobody has picked one yet.",
+   "fieldname": "product_type_source",
+   "fieldtype": "Select",
+   "label": "Product Type Source",
+   "options": "none\nlisting\nsuggested\nreviewer",
+   "read_only": 1
   },
   {
    "fieldname": "content_section",
@@ -189,6 +216,14 @@
    "read_only": 1
   },
   {
+   "description": "Amazon's candidate product types for this listing, best match first, as [{product_type, display_name}]. Looked up only when the listing had no product type of its own, and always from the ENRICHED title above rather than the raw one — a product type has to describe the copy that will actually be published. The Product Type field offers these as options; this is the record of what Amazon said on the day it was asked.",
+   "fieldname": "product_type_suggestions",
+   "fieldtype": "Code",
+   "label": "Product Type Suggestions (JSON)",
+   "options": "JSON",
+   "read_only": 1
+  },
+  {
    "description": "Verbatim JSON returned by the agent, kept for audit.",
    "fieldname": "output_json",
    "fieldtype": "Code",
@@ -199,7 +234,7 @@
  ],
  "index_web_pages_for_search": 1,
  "links": [],
- "modified": "2026-08-05 00:00:00",
+ "modified": "2026-08-11 00:00:00",
  "modified_by": "Administrator",
  "module": "Alaiy Os Agent Amazon Listing",
  "name": "Amazon Enriched Listing",

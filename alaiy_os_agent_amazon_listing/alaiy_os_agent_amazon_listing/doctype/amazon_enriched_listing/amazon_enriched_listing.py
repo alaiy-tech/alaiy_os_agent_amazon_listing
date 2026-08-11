@@ -14,6 +14,33 @@ MAX_BULLETS = 5
 
 
 class AmazonEnrichedListing(Document):
+	def validate(self):
+		self._record_product_type_override()
+
+	def _record_product_type_override(self):
+		"""Mark a product type a human changed as theirs.
+
+		The distinction is the reason the reviewer is asked at all: a suggested
+		type is Amazon's guess at a title, and a reviewed one is a person who
+		looked at the product. Both end up in the same field, so without this the
+		form cannot tell a confirmed answer from an unexamined default — and
+		`product_type_source` is what the form reads to decide whether to keep
+		nagging.
+
+		Only a change made outside a run counts. save_listing sets both fields
+		together and flags itself, because a re-run that lands on a different
+		product type is still the agent's answer, not a human's.
+		"""
+		if self.flags.from_agent:
+			return
+		before = self.get_doc_before_save()
+		# `.get`, not the attribute: a row saved before this field was migrated in
+		# has no such column on its snapshot, and an enrichment must not fail to
+		# save over a product type nobody has set yet.
+		if not before or before.get("product_type") == self.product_type:
+			return
+		self.product_type_source = "reviewer" if self.product_type else "none"
+
 	def on_update(self):
 		# on_update fires after the row is written, so the database already says
 		# "Approved" — the previous status must come from the pre-save snapshot.
@@ -43,10 +70,12 @@ class AmazonEnrichedListing(Document):
 	def _push_to_listing(self):
 		"""Push approved enrichment back to the Amazon Product Listing.
 
-		Only the four content fields the agent produces are written. Offer data
-		(price, quantity, condition, fulfillment channel), the ASIN and the
-		marketplace belong to the connector and are never touched here — and neither
-		is the listing's own `suppression_reasons`, which only Amazon clears.
+		The four content fields the agent produces are written, plus the product
+		type when the listing has none (see _sync_product_type — a listing without
+		one cannot be updated on Amazon at all). Offer data (price, quantity,
+		condition, fulfillment channel), the ASIN and the marketplace belong to the
+		connector and are never touched here — and neither is the listing's own
+		`suppression_reasons`, which only Amazon clears.
 
 		This writes to the local Amazon Product Listing record, not to Amazon. Submitting it
 		is the connector's job, on its own schedule.
@@ -60,12 +89,44 @@ class AmazonEnrichedListing(Document):
 		listing_doc.title = self.title
 		listing_doc.description = self.description
 
+		self._sync_product_type(listing_doc)
 		self._sync_bullets(listing_doc)
 		self._sync_keywords(listing_doc)
 		self._sync_images(listing_doc)
 
 		listing_doc.save(ignore_permissions=True)
 		frappe.db.commit()
+
+	def _sync_product_type(self, listing_doc):
+		"""Fill the listing's Amazon product type, but never overwrite one.
+
+		A listing with no product type cannot be updated on Amazon at all — every
+		write through the Listings API has to declare one — so an approved
+		enrichment filling that gap is the whole point of asking for it. That is
+		the only case handled here.
+
+		Changing a product type a listing already has is a different act and is
+		deliberately not done: it is Amazon's own classification of a live ASIN,
+		changing it re-decides which attributes the listing is required to carry,
+		and Amazon treats it as its own operation rather than a content edit. A
+		reviewer who genuinely wants to recategorise is told to do it on the
+		listing, where the connector owns that field.
+		"""
+		chosen = (self.product_type or "").strip()
+		if not chosen:
+			return
+
+		current = (listing_doc.get("product_type") or "").strip()
+		if not current:
+			listing_doc.product_type = chosen
+		elif current.upper() != chosen.upper():
+			frappe.msgprint(
+				f"This listing is already classified as '{current}' on Amazon, so the "
+				f"enrichment's product type ('{chosen}') was not published. Everything "
+				"else was. Change the product type on the Amazon Product Listing itself "
+				"if the classification is genuinely wrong — it decides which attributes "
+				"Amazon requires of this listing."
+			)
 
 	def _sync_bullets(self, listing_doc):
 		"""Replace the listing's key product features with the approved ones.
