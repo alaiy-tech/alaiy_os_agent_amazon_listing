@@ -17,8 +17,44 @@
 frappe.ui.form.on("Amazon Enriched Listing", {
 	refresh(frm) {
 		render_image_preview(frm);
+		render_product_type_help(frm);
 	},
 });
+
+// The product type decides whether Amazon will accept ANY update to this listing,
+// so a reviewer needs two things next to the field: which of Amazon's candidates
+// they can pick from, and how much the value already there is worth. A suggested
+// type is a good guess; one that came off the listing is Amazon's own answer.
+function render_product_type_help(frm) {
+	const field = frm.get_field("product_type");
+	if (!field) return;
+
+	let suggestions = [];
+	try {
+		suggestions = JSON.parse(frm.doc.product_type_suggestions || "[]") || [];
+	} catch (e) {
+		suggestions = [];
+	}
+
+	const parts = [];
+	if (frm.doc.product_type_source === "listing") {
+		parts.push(__("Amazon's own classification for this listing."));
+	} else if (frm.doc.product_type_source === "suggested") {
+		parts.push(__("Amazon's best match for the title — confirm it before approving."));
+	}
+	if (suggestions.length) {
+		const options = suggestions
+			.map((s) => `<b>${frappe.utils.escape_html(s.product_type)}</b>` +
+				(s.display_name && s.display_name !== s.product_type
+					? ` (${frappe.utils.escape_html(s.display_name)})`
+					: ""))
+			.join(", ");
+		parts.push(`${__("Amazon's candidates, best match first")}: ${options}`);
+	}
+	if (!parts.length) return;
+
+	field.set_new_description(parts.join("<br>"));
+}
 
 const THUMB = 190;
 

@@ -18,15 +18,49 @@ DocType from `alaiy_os_connector_amazon_sp_api`, keyed by seller **SKU**.
 
 | | |
 |---|---|
-| Reads | `Amazon Product Listing` — title, ASIN, marketplace, listing status, condition, offer data, description, bullet points, keywords, images, its variation family (`is_variation_parent` / `parent_listing` / `variation_theme`), and Amazon's own **suppression reasons** (the agent is told to fix the issues that name a field it produces) |
-| Writes | `Amazon Enriched Listing` (Needs Review) — title, bullet points, description, keywords, images, plus `needs_review` / `confidence` / `notes` |
-| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Product Listing` **main image first**, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API. |
+| Reads | `Amazon Product Listing` — title, ASIN, marketplace, listing status, condition, offer data, description, bullet points, keywords, images, **product type**, its variation family (`is_variation_parent` / `parent_listing` / `variation_theme`), and Amazon's own **suppression reasons** (the agent is told to fix the issues that name a field it produces) |
+| Writes | `Amazon Enriched Listing` (Needs Review) — title, bullet points, description, keywords, images, product type, plus `needs_review` / `confidence` / `notes` |
+| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Product Listing` **main image first**, fills its product type when it has none, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API directly. |
 
 Amazon's shape drives the differences from the Shopify agent: variations are separate
-sibling listings rather than child rows, and there is no category, product type or
-metafields, so the output is the five content fields above. Approval never publishes a sixth bullet, and an enrichment that
-produced no bullets, keywords or images leaves what the listing already has in place
-rather than emptying it.
+sibling listings rather than child rows, and there are no metafields, so the output is
+the content fields above plus Amazon's product type. Approval never publishes a sixth
+bullet, and an enrichment that produced no bullets, keywords or images leaves what the
+listing already has in place rather than emptying it.
+
+### Product type
+
+Amazon's product type (`TOWEL`, `SHIRT`, `LUGGAGE`) is a category key from Amazon's own
+register, not free text. Every update Amazon accepts has to declare one, so a listing
+without it cannot be changed at all — and the type also decides which conventions the
+copy should follow.
+
+**The agent does not produce a product type.** It is derived, and the ordering is the
+point:
+
+> enrich the title first → **then** ask Amazon to classify it
+
+The lookup runs inside `save_listing`, against the **enriched** title, never the raw one
+the listing arrived with. A product type and the title it is published beside have to
+describe the same product; raw Amazon titles are routinely keyword-stuffed,
+mistranslated, or about something other than what the enrichment turns out to be, so a
+type classified from the old title can contradict the new one — and Amazon rejects that
+combination. `product_type.resolve()` takes the enriched title as a required argument
+precisely so the ordering is enforced by the signature rather than by convention.
+
+| Situation | What happens |
+|---|---|
+| The listing already has a `product_type` | Amazon's own answer. Used as-is, no lookup at all, and approval never overwrites it — a reviewer who wants to recategorise does it on the listing itself. The agent is told the category so it writes copy for it. |
+| The listing has none | After the copy is written, the connector's `suggest_product_types` is asked to classify the **enriched title**. The shortlist is stored on the enrichment and the best match pre-selected. Approval writes the reviewed value onto the listing. |
+| No title, nothing suggested, or the lookup fails | `product_type` stays empty and "Product type" goes to `needs_review`. Never a guess, and never a fallback to the raw title. |
+
+What this asks of the agent is one thing, in the title: name the product plainly and
+early ("Bath Towel", "Cabin Suitcase"), because that noun is what Amazon classifies
+from. The prompt says so under `## PRODUCT TYPE` and in the title rules.
+
+Set `amazon_listing_product_type_auto_accept: 0` in `site_config.json` to stop the top
+suggestion being pre-selected, so every product type is chosen by a human. Suggestions
+are still gathered and shown either way.
 
 ### What you edit
 
@@ -36,6 +70,7 @@ rather than emptying it.
 | `prompts/system.md` | The system prompt. |
 | `schemas/output.json` | The output JSON Schema. |
 | `tools/handlers.py` | `get_product`, `view_image`, `get_reference_values`, `save_listing`. |
+| `product_type.py` | Which Amazon product type a listing belongs to, and what may be stored as one. |
 | `tools/image_prepare.py` | The image step: white-background main image + translated gallery. |
 
 `setup/install.py` reads `agent_meta.py` and upserts the registry row on install and
