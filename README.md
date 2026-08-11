@@ -20,7 +20,7 @@ DocType from `alaiy_os_connector_amazon_sp_api`, keyed by seller **SKU**.
 |---|---|
 | Reads | `Amazon Product Listing` — title, ASIN, marketplace, listing status, condition, offer data, description, bullet points, keywords, images, **product type**, its variation family (`is_variation_parent` / `parent_listing` / `variation_theme`), and Amazon's own **suppression reasons** (the agent is told to fix the issues that name a field it produces) |
 | Writes | `Amazon Enriched Listing` (Needs Review) — title, bullet points, description, keywords, images, product type, plus `needs_review` / `confidence` / `notes` |
-| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Product Listing` **main image first**, fills its product type when it has none, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API directly. |
+| On approval | pushes title, description, bullet points, keywords and produced images back onto the `Amazon Product Listing` **main image first**, writes its reviewed product type, and sets its `is_enriched` flag. The connector submits to Amazon on its own schedule; this app never calls SP-API directly. |
 
 Amazon's shape drives the differences from the Shopify agent: variations are separate
 sibling listings rather than child rows, and there are no metafields, so the output is
@@ -48,15 +48,24 @@ type classified from the old title can contradict the new one — and Amazon rej
 combination. `product_type.resolve()` takes the enriched title as a required argument
 precisely so the ordering is enforced by the signature rather than by convention.
 
+**Amazon is asked on every run, whether or not the listing already has a type.** A
+stored product type classifies the copy the listing had when it was synced, and
+enrichment rewrites that copy — so the listings most likely to be misclassified are
+exactly the ones a "skip if already set" rule would never re-check.
+
 | Situation | What happens |
 |---|---|
-| The listing already has a `product_type` | Amazon's own answer. Used as-is, no lookup at all, and approval never overwrites it — a reviewer who wants to recategorise does it on the listing itself. The agent is told the category so it writes copy for it. |
-| The listing has none | After the copy is written, the connector's `suggest_product_types` is asked to classify the **enriched title**. The shortlist is stored on the enrichment and the best match pre-selected. Approval writes the reviewed value onto the listing. |
-| No title, nothing suggested, or the lookup fails | `product_type` stays empty and "Product type" goes to `needs_review`. Never a guess, and never a fallback to the raw title. |
+| Amazon classifies the enriched title | That becomes the enrichment's `product_type`, with the full shortlist stored beside it. `source` = `suggested`. |
+| …and it differs from what the listing sells as today | The conflict goes to `needs_review` naming both types. A recategorisation is a decision about a live listing, so a human makes it. |
+| Amazon has nothing to say (no answer, lookup failed, auto-accept off) | The type the listing already published with is kept — dropping it would leave the listing unwritable on Amazon. `source` = `listing`. |
+| …and there was no stored type either | `product_type` stays empty and "Product type" goes to `needs_review`. Never a guess, and never a fallback to the raw title. |
 
-What this asks of the agent is one thing, in the title: name the product plainly and
-early ("Bath Towel", "Cabin Suitcase"), because that noun is what Amazon classifies
-from. The prompt says so under `## PRODUCT TYPE` and in the title rules.
+On approval the reviewed value is written onto the listing, including when it replaces
+an existing one — the disagreement was put in front of the reviewer at save time, and
+approving is the decision. Correct the field before approving if it is wrong. This
+writes the local record only; whether a change of classification can be submitted to
+Amazon is the connector's call.
+
 
 Set `amazon_listing_product_type_auto_accept: 0` in `site_config.json` to stop the top
 suggestion being pre-selected, so every product type is chosen by a human. Suggestions

@@ -11,16 +11,21 @@ until now nothing in this app read it, so the agent wrote copy blind to the
 category and a listing that arrived without a type kept none.
 
 This module is the one place that answers "what product type is this listing?"
-for the agent. Two cases, and the difference matters:
+for the agent, and it answers it by asking Amazon — every time, whether or not
+the listing already carries a type.
 
-  • The listing already has one. That value came from Amazon itself and is
-    authoritative — it is used as-is, and no lookup is made. Paying for an
-    SP-API round trip to second-guess Amazon would be both slower and wrong.
+Always asking is the point. A stored product type is a classification of the
+copy the listing had when it was synced, and enrichment rewrites that copy. A
+towel listing whose old title read as luggage carries `LUGGAGE` today; the
+enriched title says what the product actually is, and the lookup is the only
+thing that will ever notice the difference. Skipping the call whenever a value
+already exists would mean the listings most likely to be misclassified are
+exactly the ones never re-checked.
 
-  • The listing has none (a variation parent, an offer-only SKU, a product
-    Amazon has never listed). Then, and only then, a title is put through the
-    connector's `suggest_product_types` and the suggestions are carried into the
-    enrichment for the reviewer to confirm.
+A stored value is not discarded, though — it is what the answer is compared
+against (`existing` in the result), so a disagreement reaches the reviewer as a
+question rather than being applied silently, and it is the fallback when Amazon
+has nothing to say.
 
 **Which title, and when, is the whole design.** The lookup runs against the
 ENRICHED title, after the agent has rewritten it — never against the raw one
@@ -115,9 +120,10 @@ def display_name(product_type, suggestions=None):
 def existing(listing):
 	"""The product type Amazon already has for this listing, or None.
 
-	The free half of the question, and the half `get_product` needs: it costs a
-	field read, it is available before any copy is written, and it is the
-	category whose conventions the agent should be writing to.
+	What `get_product` shows the agent: it costs a field read, it is available
+	before any copy is written, and it is the category the listing sells in
+	today. Whether it still describes the listing after enrichment is what
+	`resolve` asks Amazon.
 	"""
 	return (listing.get("product_type") or "").strip() or None
 
@@ -125,47 +131,40 @@ def existing(listing):
 def resolve(listing, enriched_title):
 	"""This listing's product type once its copy is written, and the shortlist behind it.
 
-	    {product_type, product_type_display, suggestions, source}
+	    {product_type, product_type_display, suggestions, source, existing}
 
 	`enriched_title` is the title the agent just produced — the one that will be
 	published. It is a required argument and the raw `listing.title` is never
 	substituted for it: see the module docstring for why classifying from the old
 	title is the bug this signature exists to prevent. No enriched title means no
-	lookup, which is a listing the reviewer settles rather than a guess.
+	lookup at all.
+
+	Amazon is asked whether or not the listing already has a type. The stored
+	value does not shortcut the call; it comes back as `existing`, for the caller
+	to compare against and to fall back on.
 
 	`source` says where the answer came from, and is the field to read before
 	trusting it:
 
-	  "listing"   — Amazon's own value, already on the listing. Authoritative.
-	  "suggested" — the top match for the ENRICHED title, auto-accepted. A good
-	                answer, and one a reviewer should confirm.
-	  "none"      — nothing suggested, no title to ask about, or auto-accept is
-	                off. The enrichment carries the shortlist and asks for a human.
+	  "suggested" — Amazon's top match for the ENRICHED title, auto-accepted.
+	                The normal answer, and one a reviewer should confirm.
+	  "listing"   — Amazon said nothing usable, so the type the listing already
+	                had stands. Not a fresh opinion; the previous one, kept.
+	  "none"      — no answer and nothing stored, or auto-accept is off with
+	                nothing to fall back on. The shortlist asks for a human.
 
 	Memoized per (sku, title) so a run that saves twice pays for one lookup.
 	"""
 	sku = listing.get("name")
 	enriched_title = (enriched_title or "").strip()
-
 	stored = existing(listing)
-	if stored:
-		return {
-			"product_type": stored,
-			"product_type_display": stored,
-			"suggestions": [],
-			"source": "listing",
-		}
 
 	if not enriched_title:
 		# No question to ask. Explicitly NOT `listing.title` — falling back to the
 		# raw title here is the single mistake this module exists to make
-		# impossible, and an unclassified listing is the honest outcome.
-		return {
-			"product_type": None,
-			"product_type_display": None,
-			"suggestions": [],
-			"source": "none",
-		}
+		# impossible. The stored type stands because it is all there is, not
+		# because it was checked.
+		return _answer(stored, stored, [], "listing" if stored else "none", stored)
 
 	cache = _memo()
 	key = (sku, enriched_title)
@@ -174,15 +173,42 @@ def resolve(listing, enriched_title):
 
 	suggestions = suggest(enriched_title, listing.get("marketplace"))
 	chosen = suggestions[0] if (suggestions and auto_accept_enabled()) else None
-	resolved = {
-		"product_type": chosen["product_type"] if chosen else None,
-		"product_type_display": chosen["display_name"] if chosen else None,
-		"suggestions": suggestions,
-		"source": "suggested" if chosen else "none",
-	}
+
+	if chosen:
+		resolved = _answer(
+			chosen["product_type"], chosen["display_name"], suggestions, "suggested", stored
+		)
+	elif stored:
+		# Amazon had no answer for the new title, or auto-accept is off. Either
+		# way, dropping a type the listing already publishes with would leave it
+		# unwritable — the previous classification is the safe floor.
+		resolved = _answer(stored, stored, suggestions, "listing", stored)
+	else:
+		resolved = _answer(None, None, suggestions, "none", stored)
 
 	cache[key] = resolved
 	return resolved
+
+
+def disagrees(resolved):
+	"""Whether Amazon classified the enriched title as something new.
+
+	True only when there is a real conflict to put in front of a reviewer: the
+	listing publishes as one thing today and its rewritten copy reads as another.
+	A listing that had no type, or one Amazon simply confirmed, is not a conflict.
+	"""
+	chosen, stored = resolved["product_type"], resolved["existing"]
+	return bool(chosen and stored and chosen.upper() != stored.upper())
+
+
+def _answer(product_type, display, suggestions, source, stored):
+	return {
+		"product_type": product_type,
+		"product_type_display": display,
+		"suggestions": list(suggestions),
+		"source": source,
+		"existing": stored,
+	}
 
 
 def _memo():

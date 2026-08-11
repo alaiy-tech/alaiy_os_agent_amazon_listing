@@ -70,9 +70,9 @@ class AmazonEnrichedListing(Document):
 	def _push_to_listing(self):
 		"""Push approved enrichment back to the Amazon Product Listing.
 
-		The four content fields the agent produces are written, plus the product
-		type when the listing has none (see _sync_product_type — a listing without
-		one cannot be updated on Amazon at all). Offer data (price, quantity,
+		The four content fields the agent produces are written, plus the reviewed
+		product type (see _sync_product_type — a listing without one cannot be
+		updated on Amazon at all). Offer data (price, quantity,
 		condition, fulfillment channel), the ASIN and the marketplace belong to the
 		connector and are never touched here — and neither is the listing's own
 		`suppression_reasons`, which only Amazon clears.
@@ -98,34 +98,41 @@ class AmazonEnrichedListing(Document):
 		frappe.db.commit()
 
 	def _sync_product_type(self, listing_doc):
-		"""Fill the listing's Amazon product type, but never overwrite one.
+		"""Publish the reviewed product type onto the listing.
 
 		A listing with no product type cannot be updated on Amazon at all — every
-		write through the Listings API has to declare one — so an approved
-		enrichment filling that gap is the whole point of asking for it. That is
-		the only case handled here.
+		write through the Listings API has to declare one — so filling that gap is
+		the plainest case.
 
-		Changing a product type a listing already has is a different act and is
-		deliberately not done: it is Amazon's own classification of a live ASIN,
-		changing it re-decides which attributes the listing is required to carry,
-		and Amazon treats it as its own operation rather than a content edit. A
-		reviewer who genuinely wants to recategorise is told to do it on the
-		listing, where the connector owns that field.
+		A type that REPLACES one the listing already had is the case worth being
+		explicit about. Amazon is asked to classify the enriched title on every
+		run, so an enrichment that rewrote a badly-titled listing legitimately
+		comes back with a different answer, and that disagreement was written into
+		`needs_review` when the run saved. The reviewer read it and approved
+		anyway: that is the decision, and honouring it here is the whole reason
+		the question was put to them. Approving a listing whose product type the
+		reviewer disagreed with means correcting the field first, not approving.
+
+		This writes the local record only. Whether a change of classification can
+		be submitted to Amazon, and how, is the connector's call — it owns that
+		field and the Listings API operation behind it.
 		"""
 		chosen = (self.product_type or "").strip()
 		if not chosen:
+			# An enrichment with no product type says nothing about the listing's;
+			# it must never blank one the listing is publishing with today.
 			return
 
 		current = (listing_doc.get("product_type") or "").strip()
-		if not current:
-			listing_doc.product_type = chosen
-		elif current.upper() != chosen.upper():
+		if current.upper() == chosen.upper():
+			return
+
+		listing_doc.product_type = chosen
+		if current:
 			frappe.msgprint(
-				f"This listing is already classified as '{current}' on Amazon, so the "
-				f"enrichment's product type ('{chosen}') was not published. Everything "
-				"else was. Change the product type on the Amazon Product Listing itself "
-				"if the classification is genuinely wrong — it decides which attributes "
-				"Amazon requires of this listing."
+				f"Product type changed from '{current}' to '{chosen}' — Amazon "
+				"classifies this listing's new title differently. It decides which "
+				"attributes Amazon requires, so check the listing still validates."
 			)
 
 	def _sync_bullets(self, listing_doc):

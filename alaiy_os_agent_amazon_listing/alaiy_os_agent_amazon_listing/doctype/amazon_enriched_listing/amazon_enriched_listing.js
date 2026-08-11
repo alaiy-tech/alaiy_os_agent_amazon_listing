@@ -22,9 +22,11 @@ frappe.ui.form.on("Amazon Enriched Listing", {
 });
 
 // The product type decides whether Amazon will accept ANY update to this listing,
-// so a reviewer needs two things next to the field: which of Amazon's candidates
-// they can pick from, and how much the value already there is worth. A suggested
-// type is a good guess; one that came off the listing is Amazon's own answer.
+// and approval writes it onto the listing — so a reviewer needs two things next to
+// the field: which of Amazon's candidates they can pick from, and how much the
+// value already there is worth. A suggested type is Amazon classifying the enriched
+// title; a `listing` one is only the previous classification, kept because Amazon
+// had nothing to say. Where the two disagree, Needs Review spells it out.
 function render_product_type_help(frm) {
 	const field = frm.get_field("product_type");
 	if (!field) return;
@@ -38,9 +40,15 @@ function render_product_type_help(frm) {
 
 	const parts = [];
 	if (frm.doc.product_type_source === "listing") {
-		parts.push(__("Amazon's own classification for this listing."));
+		parts.push(
+			__("Amazon had no answer for the enriched title — the type this listing already published with was kept.")
+		);
 	} else if (frm.doc.product_type_source === "suggested") {
-		parts.push(__("Amazon's best match for the title — confirm it before approving."));
+		parts.push(
+			__("Amazon's best match for the enriched title. Approval writes it onto the listing, so confirm it first.")
+		);
+	} else if (frm.doc.product_type_source === "reviewer") {
+		parts.push(__("Set by hand. Approval writes it onto the listing."));
 	}
 	if (suggestions.length) {
 		const options = suggestions

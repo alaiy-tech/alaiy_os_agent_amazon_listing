@@ -78,7 +78,7 @@
    "label": "Title"
   },
   {
-   "description": "Amazon's product type for this listing, e.g. TOWEL. Every update Amazon accepts has to declare one, so a listing without it cannot be published to at all. Approval fills it in on the Amazon Product Listing when that listing has none — pick from the suggestions below, or type an Amazon product type in.",
+   "description": "Amazon's product type for this listing, e.g. TOWEL. Every update Amazon accepts has to declare one, so a listing without it cannot be published to at all. Classified from the ENRICHED title on every run, so it can differ from what the listing sells as today — where it does, Needs Review says so. Approval writes this value onto the Amazon Product Listing, so correct it before approving if it is wrong.",
    "fieldname": "product_type",
    "fieldtype": "Data",
    "in_standard_filter": 1,
@@ -93,7 +93,7 @@
   },
   {
    "default": "none",
-   "description": "Where the product type came from. `listing` is Amazon's own value, already on the listing, and is settled. `suggested` is Amazon's best match for the ENRICHED title, which is a good answer and not a confirmed one. `reviewer` means a human typed or picked this one, which outranks both. `none` means nobody has picked one yet.",
+   "description": "Where the product type came from. `suggested` is Amazon's best match for the ENRICHED title — the normal answer, and one worth confirming. `listing` means Amazon had nothing to say about the new title, so the type this listing already published with was kept. `reviewer` means a human typed or picked this one, which outranks both. `none` means nobody has picked one yet.",
    "fieldname": "product_type_source",
    "fieldtype": "Select",
    "label": "Product Type Source",
@@ -216,7 +216,7 @@
    "read_only": 1
   },
   {
-   "description": "Amazon's candidate product types for this listing, best match first, as [{product_type, display_name}]. Looked up only when the listing had no product type of its own, and always from the ENRICHED title above rather than the raw one — a product type has to describe the copy that will actually be published. The Product Type field offers these as options; this is the record of what Amazon said on the day it was asked.",
+   "description": "Amazon's candidate product types for this listing, best match first, as [{product_type, display_name}]. Looked up from the ENRICHED title above rather than the raw one — a product type has to describe the copy that will actually be published. The Product Type field offers these as options; this is the record of what Amazon said on the day it was asked.",
    "fieldname": "product_type_suggestions",
    "fieldtype": "Code",
    "label": "Product Type Suggestions (JSON)",
