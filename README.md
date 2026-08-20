@@ -81,6 +81,7 @@ are still gathered and shown either way.
 | `tools/handlers.py` | `get_product`, `view_image`, `get_reference_values`, `save_listing`. |
 | `product_type.py` | Which Amazon product type a listing belongs to, and what may be stored as one. |
 | `tools/image_prepare.py` | The image step: white-background main image + translated gallery. |
+| `image_store.py` | Where a produced image is stored (S3), and how it is read back. |
 
 `setup/install.py` reads `agent_meta.py` and upserts the registry row on install and
 every migrate — you should not need to touch it.
@@ -191,6 +192,88 @@ declare a queue under `workers` in `common_site_config.json` and set:
 ```
 
 It falls back to `long` when that is not configured.
+
+### Where produced images are stored
+
+A processed photo goes to **S3**, and the listing row stores the object's URL. Local
+disk was the wrong home for it: the image is produced on whichever worker took the
+job, read back minutes later by a reviewer and again at approval time, and expected to
+still be there after a redeploy — none of which a single instance's disk gives you,
+and none of which a CDN can sit in front of.
+
+Set `S3_BUCKET` and images go to S3. Leave it unset and the app writes local public
+Frappe Files exactly as it did before, which is what a dev site and CI want. Nothing
+else changes: `tools/images.py` is the only place that knows which backend answered.
+
+| Variable | Default | What it is |
+|---|---|---|
+| `S3_BUCKET` | *(unset)* | The bucket. **Its presence is the switch** — unset means local Files. Use `white-background`. |
+| `IMAGE_S3_REGION` | `ap-south-1` | The bucket's region. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | *(unset)* | Resolved by boto3's own chain, so an instance role or a profile works instead. This app never reads them and holds no credential. |
+| `IMAGE_S3_PREFIX` | `images/` | Key prefix. Objects land under `<prefix><category>/<YYYY>/<MM>/`. |
+| `IMAGE_S3_ACL` | `private` | The object ACL. `none` sends no ACL header — needed only on a bucket that still uses ACLs but rejects this one. |
+| `IMAGE_S3_URL_EXPIRY` | `604800` | Seconds a presigned link stays valid (7 days is SigV4's ceiling). |
+| `IMAGE_S3_PUBLIC_BASE_URL` | *(unset)* | A CDN in front of the bucket. Set it and stored URLs become `<base>/<key>` — public, and nothing expires. |
+| `IMAGE_S3_ENDPOINT_URL` | *(unset)* | An S3-compatible endpoint (MinIO) instead of AWS. |
+| `IMAGE_S3_MAX_ATTEMPTS` | `3` | Upload attempts before giving up on a transient failure. |
+
+Every one of these can equally be set in `site_config.json` under the same name
+lowercased (`bench --site $SITE set-config s3_bucket white-background`); the
+environment wins where both are present.
+
+**The main image is filed apart from the gallery**, because the two are different work
+and a reviewer — or a lifecycle rule — wants to tell them apart without opening them:
+
+```
+images/generated/2026/08/listing-main-9f3ab21c-20260811120000123.jpg     ← white background
+images/translated/2026/08/listing-gallery-4c81de02-20260811120000456.jpg ← translated
+```
+
+The caller's filename is kept, and a millisecond stamp is appended: a re-run on the
+same photo writes a **new object**, never over the old one, so a bad result is always
+recoverable and the supplier's original is never touched. Each object carries its
+`sku`, `role` and `source-url` as S3 metadata.
+
+**Objects are private, so a stored URL is an identity rather than a link.** Everything
+that has to hand an image to something else goes through `images.public_image_url`,
+which returns a presigned URL good for `IMAGE_S3_URL_EXPIRY`: the AlphaShop calls that
+re-process a photo, and the reviewer's form, which asks
+`api.image_view_links(sku)` for one link per row before drawing its thumbnails.
+
+That leaves one thing to decide per deployment. **Amazon fetches an image URL for
+itself**, on the connector's schedule, and a presigned link has a deadline. If that
+schedule can run past `IMAGE_S3_URL_EXPIRY`, put a CDN in front of the bucket and set
+`IMAGE_S3_PUBLIC_BASE_URL` — stored URLs become CDN URLs, are public, and never
+expire. Without it, keep the connector's submission window inside the expiry.
+
+Uploads retry the transient S3 failures (`SlowDown`, `ThrottlingException`, 5xx,
+dropped connections) and log latency per object. An upload that still cannot land
+falls back to a local File and writes to the **error log** rather than throwing away
+imagery a paid service just produced — so an S3 misconfiguration shows up as a loud
+log with the images intact, not as lost work.
+
+#### Migrating a bench that already produced images locally
+
+Nothing is deleted and nothing is rewritten in place, so this is safe to run twice and
+to stop halfway.
+
+```bash
+bench --site $SITE set-config s3_bucket white-background
+bench --site $SITE set-config image_s3_region ap-south-1
+
+# What would move (no uploads):
+bench --site $SITE execute alaiy_os_agent_amazon_listing.image_store.migrate_local_images
+
+# Move them:
+bench --site $SITE execute alaiy_os_agent_amazon_listing.image_store.migrate_local_images \
+  --kwargs "{'dry_run': False}"
+```
+
+It uploads every `Amazon Enriched Listing Image` row whose url is still a site-relative
+File path and repoints the row at the object, keeping the File itself — so restoring
+the previous urls is enough to undo it. Pass `limit` to move a first batch and check
+it. Already-approved listings keep whatever url they published with; re-approve a
+listing if you want its Amazon Product Listing rows repointed too.
 
 ### Contributing
 

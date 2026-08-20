@@ -141,6 +141,41 @@ def approve_listings(names):
 
 
 @frappe.whitelist()
+def image_view_links(sku):
+	"""
+	Viewable links for one enriched listing's images — `{stored_url: link}`.
+
+	The images this app produces live in S3 and the objects are private, so the url on
+	an image row is an identity, not something a browser can render. The reviewer's form
+	asks for this before drawing its thumbnails and gets a presigned link per row,
+	valid for `IMAGE_S3_URL_EXPIRY`.
+
+	Scoped to one listing the caller may read, and only ever answers about urls that
+	listing actually holds: presigning is handing out read access, so the caller must
+	not be able to name an arbitrary key and be signed for it. Urls that are not ours
+	(supplier CDN photos, local Files) come back unchanged, so the client can look
+	every row up here without deciding which backend each one came from.
+
+	A sku with no enriched listing yet answers `{}` rather than throwing: the run page
+	asks while a run may still be in flight, and there is nothing to sign then.
+	"""
+	if not frappe.db.exists(ENRICHED_DOCTYPE, sku):
+		return {}
+
+	doc = frappe.get_doc(ENRICHED_DOCTYPE, sku)
+	doc.check_permission("read")
+
+	from alaiy_os_agent_amazon_listing.tools import images
+
+	links = {}
+	for row in doc.images or []:
+		for url in (row.source_url, row.url):
+			if url and url not in links:
+				links[url] = images.public_image_url(url)
+	return links
+
+
+@frappe.whitelist()
 def get_bulk_status(batch):
 	"""Progress of one bulk enrichment — the poll shape for a UI.
 

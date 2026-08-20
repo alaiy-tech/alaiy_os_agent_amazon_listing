@@ -66,7 +66,24 @@ function render_product_type_help(frm) {
 
 const THUMB = 190;
 
-function pane(url, label, placeholder) {
+// A produced image lives in S3 and the object is private, so the url on the row
+// identifies it but cannot be rendered. `image_view_links` trades this listing's urls
+// for links a browser can load — presigned for an S3 object, unchanged for a supplier
+// photo or a local File — and the thumbnails are drawn from those.
+function view_links(frm) {
+	if (frm.is_new() || !(frm.doc.images || []).length) return Promise.resolve({});
+	return frappe
+		.call({
+			method: "alaiy_os_agent_amazon_listing.api.image_view_links",
+			args: { sku: frm.doc.name },
+		})
+		.then((r) => r.message || {})
+		// A failure here costs thumbnails, not the form: fall back to the raw urls,
+		// which still render for anything that was not stored privately.
+		.catch(() => ({}));
+}
+
+function pane(url, label, placeholder, links) {
 	const caption = label
 		? `<div style="font-size:11px;margin-top:4px;color:var(--text-muted);">${frappe.utils.escape_html(
 				label
@@ -85,7 +102,7 @@ function pane(url, label, placeholder) {
 			</div>`;
 	}
 
-	const safe = frappe.utils.escape_html(url);
+	const safe = frappe.utils.escape_html((links || {})[url] || url);
 	return `
 		<div style="width:${THUMB}px;">
 			<a href="${safe}" target="_blank" rel="noopener">
@@ -130,6 +147,10 @@ function render_image_preview(frm) {
 		return;
 	}
 
+	view_links(frm).then((links) => draw_image_preview(wrapper, rows, links));
+}
+
+function draw_image_preview(wrapper, rows, links) {
 	const blocks = rows
 		.map((row, idx) => {
 			const paired = !!row.source_url;
@@ -141,10 +162,10 @@ function render_image_preview(frm) {
 			}
 
 			const panes = paired
-				? `${pane(row.source_url, __("Source"), "")}
+				? `${pane(row.source_url, __("Source"), "", links)}
 				   <div style="padding-top:${THUMB / 2 - 10}px;color:var(--text-muted);font-size:16px;">&rarr;</div>
-				   ${pane(row.url, result_label, __("not produced"))}`
-				: pane(row.url, result_label, __("not produced"));
+				   ${pane(row.url, result_label, __("not produced"), links)}`
+				: pane(row.url, result_label, __("not produced"), links);
 
 			return `
 				<div style="display:flex;gap:12px;align-items:flex-start;margin-bottom:14px;
