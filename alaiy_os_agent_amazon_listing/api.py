@@ -10,6 +10,13 @@ whatever the agent's tools declare. `get_listing_agent` is the one endpoint they
 `bulk_enrich` is the many-listings entry point. It creates an Amazon Product Listing Bulk
 Enrich and starts it; the listings then run on Frappe workers, one OS Agent Run each
 (see bulk.py). Poll `get_bulk_status`.
+
+`enrich_item` and `bulk_enrich_items` are the same two entry points reached from the
+Item side, for the items that have no listing yet — the reason the Item surfaces exist
+at all, since the listing list view can only offer listings that already exist. Each
+resolves its items to skus, registering a listing row from the item where there is none
+(item_listing.py), and then runs exactly the machinery above. They add no second way to
+enrich: `bulk_enrich_items` delegates to `bulk_enrich` for the batch itself.
 """
 
 import json
@@ -94,6 +101,117 @@ def bulk_enrich(skus, notes=None, batch_size=None, skip_enriched=0, **toggles):
 	batch.insert()
 
 	return batch.start()
+
+
+@frappe.whitelist()
+def enrich_item(item_code, marketplace=None):
+	"""
+	The sku to enrich for one Item, creating its listing row if the Item has none.
+
+	    {sku, created, adopted, listings, item_disabled}
+
+	The Item form's entry point: the run page and the whole tool layer are keyed on an
+	Amazon Product Listing, so an Item that has never been listed needs a row before a
+	run can start. See item_listing for what that row does and does not claim.
+
+	Idempotent — an Item that already has a listing gets that listing back untouched,
+	so pressing the button twice can neither duplicate a row nor lose Amazon's own
+	title, description or photos.
+	"""
+	from alaiy_os_agent_amazon_listing import item_listing
+
+	if not frappe.has_permission("Item", "read", doc=item_code):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+
+	# Checked here rather than inside item_listing, which saves with
+	# ignore_permissions — the same split bulk_enrich and the connector use. Asked for
+	# unconditionally: whether a row is about to be created is not knowable without
+	# doing the resolve, and "may enrich" implies "may register a listing" either way.
+	# After the connector check, because has_permission on a DocType this site does not
+	# have would fail with something nobody can act on.
+	if item_listing.connector_installed() and not frappe.has_permission(
+		item_listing.LISTING_DOCTYPE, "create"
+	):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+
+	return item_listing.ensure_listing(item_code, marketplace=marketplace)
+
+
+@frappe.whitelist()
+def bulk_enrich_items(
+	item_codes, notes=None, batch_size=None, skip_enriched=0, marketplace=None, **toggles
+):
+	"""
+	Enrich many Items at once — the Item list view's action. Returns
+	`{batch, items, jobs, resolved, created, ambiguous, errors}`.
+
+	Each Item is resolved to a sku (creating its listing row when it has none) and the
+	skus are then handed to `bulk_enrich`, so the batch document, the toggle handling
+	and the fan-out onto workers all live in exactly one place. Nothing about bulk.py
+	changes: it keys every row, every progress report and the image finalisation on
+	`sku`, and resolving Items inside the worker would leave a batch whose rows have no
+	sku until it ran.
+
+	One bad Item does not cost the others their run — the same rule bulk.py already
+	holds per row. Each resolve gets its own savepoint, so a half-built document is
+	rolled back to just before itself rather than taking every listing created so far
+	with it, and the Item is reported in `errors` instead.
+
+	`ambiguous` names the Items that have more than one listing, with the skus, because
+	only one of them is being enriched: the marketplace asked for, else the primary
+	one, else the oldest.
+	"""
+	from alaiy_os_agent_amazon_listing import item_listing
+
+	if not frappe.has_permission("OS Agent Run", "create"):
+		frappe.throw("Not permitted.", frappe.PermissionError)
+	if isinstance(item_codes, str):
+		item_codes = json.loads(item_codes)
+	if not item_codes:
+		frappe.throw("bulk_enrich_items needs at least one item.")
+
+	skus, created, ambiguous, errors = [], [], {}, {}
+	for n, item_code in enumerate(item_codes):
+		savepoint = f"enrich_item_{n}"
+		frappe.db.savepoint(savepoint)
+		try:
+			result = item_listing.ensure_listing(item_code, marketplace=marketplace)
+		except Exception as e:
+			frappe.db.rollback(save_point=savepoint)
+			errors[item_code] = str(e)
+			continue
+
+		# Two items resolving to one listing would run the agent twice over the same
+		# sku and race on the single Amazon Enriched Listing it writes.
+		if result["sku"] not in skus:
+			skus.append(result["sku"])
+		if result["created"]:
+			created.append(result["sku"])
+		if len(result["listings"]) > 1:
+			ambiguous[item_code] = result["listings"]
+
+	if not skus:
+		# An empty batch would sit in Draft forever, saying nothing about why.
+		frappe.throw(
+			"None of these items could be enriched: "
+			+ "; ".join(f"{item}: {error}" for item, error in errors.items())
+		)
+
+	batch = bulk_enrich(
+		skus,
+		notes=notes,
+		batch_size=batch_size,
+		skip_enriched=skip_enriched,
+		**toggles,
+	)
+
+	return {
+		**batch,
+		"resolved": skus,
+		"created": created,
+		"ambiguous": ambiguous,
+		"errors": errors,
+	}
 
 
 @frappe.whitelist()

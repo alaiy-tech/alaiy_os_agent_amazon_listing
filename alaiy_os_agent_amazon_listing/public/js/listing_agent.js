@@ -76,4 +76,80 @@
 		});
 		return options;
 	};
+
+	// The "enrich this selection" dialog, shared by both list views — the Amazon
+	// Product Listing one (listing_bulk_enrich.js) and the Item one
+	// (item_bulk_enrich.js). Shared for the same reason option_fields is: the two
+	// selections differ, but the toggles, the batch knobs and their meaning must not.
+	//
+	//   {agent, title, intro, on_start(args)}
+	//
+	// `intro` is HTML shown above the toggles — how many records are selected, and for
+	// Items how many listings the run will have to register first. `on_start` gets the
+	// finished argument object: the agent's own options plus skip_enriched/batch_size.
+	alaiy.amazon_listing_agent.bulk_dialog = function ({ agent, title, intro, on_start }) {
+		const option_fields = alaiy.amazon_listing_agent.option_fields(agent);
+		const fields = [
+			{ fieldtype: "HTML", options: intro },
+			...option_fields,
+			{ fieldtype: "Section Break", label: __("Batch"), collapsible: 1 },
+			{
+				fieldname: "skip_enriched",
+				fieldtype: "Check",
+				label: __("Skip already enriched"),
+				description: __("Leave listings that already have an enriched result untouched."),
+				default: 0,
+			},
+			{
+				fieldname: "batch_size",
+				fieldtype: "Int",
+				label: __("Listings per job"),
+				default: 5,
+				description: __(
+					"How many listings each background job handles. Lower spreads the work over more workers; higher queues fewer jobs."
+				),
+			},
+		];
+
+		const d = new frappe.ui.Dialog({
+			title: title,
+			fields: fields,
+			primary_action_label: __("Start"),
+			primary_action(values) {
+				d.hide();
+				on_start({
+					...alaiy.amazon_listing_agent.options_from(option_fields, values),
+					skip_enriched: values.skip_enriched ? 1 : 0,
+					batch_size: values.batch_size || 5,
+				});
+			},
+		});
+		d.show();
+		return d;
+	};
+
+	// Queue one bulk endpoint and land on the batch, which follows its own progress.
+	// `report` is an optional function given the result before the route changes —
+	// where a caller says what its endpoint could not do (an item it had to drop).
+	alaiy.amazon_listing_agent.run_bulk = function (method, args, report) {
+		frappe.call({
+			method: method,
+			args: args,
+			freeze: true,
+			freeze_message: __("Queueing enrichment…"),
+			callback: (r) => {
+				const result = r.message || {};
+				if (!result.batch) return;
+
+				frappe.show_alert({
+					message: __("{0} listings queued across {1} jobs", [result.items, result.jobs]),
+					indicator: "green",
+				});
+				if (report) report(result);
+				frappe.set_route("Form", "Amazon Listing Bulk Enrich", result.batch);
+			},
+			// frappe.call raises its own dialog for server errors (no permission, agent
+			// disabled) — nothing to add here.
+		});
+	};
 })();

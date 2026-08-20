@@ -17,8 +17,9 @@ required_apps = ["alaiy_os", "erpnext"]
 # ---------------------------------------------------------------------------
 # Two entry points into the listing agent, both generic:
 #   Item           -> "Enrich Amazon Listing" deep-links to the run-amazon-agent
-#                     page with the item's SKU pre-selected
-#                     (public/js/item_enrich.js).
+#                     page with the item's SKU pre-selected, registering the
+#                     item's listing first when it has none
+#                     (public/js/item_enrich.js -> api.enrich_item).
 #   Amazon Listing -> "Enrich Listing" runs the agent from the form and links to
 #                     the result (public/js/listing_enrich.js).
 # Both read the agent from api.get_listing_agent, so neither knows an
@@ -28,10 +29,13 @@ doctype_js = {
     "Amazon Product Listing": "public/js/listing_enrich.js",
 }
 
-# The list view's "Enrich Listings" action: tick any number of listings and enrich
-# them all in one batch (api.bulk_enrich -> bulk.py).
+# The list views' bulk actions: tick any number of rows and enrich them all in one
+# batch. From listings, "Enrich Listings" (api.bulk_enrich -> bulk.py); from items,
+# "Enrich Amazon Listings", which registers a listing for each item that has none
+# and then runs the very same batch (api.bulk_enrich_items -> item_listing.py).
 doctype_list_js = {
     "Amazon Product Listing": "public/js/listing_bulk_enrich.js",
+    "Item": "public/js/item_bulk_enrich.js",
 }
 
 # Fetching the agent and building its toggle fields is shared by the form button and

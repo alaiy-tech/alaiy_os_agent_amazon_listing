@@ -9,6 +9,10 @@
 // and each of those is a separate listing with its own copy to write. So the button
 // resolves the item's listings first and only asks when there is more than one.
 //
+// An item with NO listing is not a dead end: with the user's say-so, api.enrich_item
+// registers one locally from the item's own data (see item_listing.py) and the run
+// proceeds against it. Repeat presses reuse that row and never edit it.
+//
 // Loaded via doctype_js in this app's hooks.py — no change to the Item doctype
 // or to alaiy_os itself.
 //
@@ -24,11 +28,26 @@
 (function () {
 	frappe.ui.form.on("Item", {
 		refresh(frm) {
-			// Nothing to enrich until the Item is actually saved (its listings are
-			// linked to it by name).
-			if (frm.is_new()) return;
+			// Never let this cost the Item form its other buttons: erpnext and several
+			// customer apps register on this same event, and the handlers share a
+			// failure. (listing_enrich.js does the same for the connector's.)
+			try {
+				// Nothing to enrich until the Item is actually saved (its listings are
+				// linked to it by name).
+				if (frm.is_new()) return;
+				if (!window.alaiy || !alaiy.amazon_listing_agent) return;
 
-			frm.add_custom_button(__("Enrich Amazon Listing"), () => enrich(frm), __("Amazon"));
+				alaiy.amazon_listing_agent.get().then((agent) => {
+					// The button now has a side effect — it can register a listing —
+					// so it must not be offered when the agent is switched off and the
+					// run it leads to would throw.
+					if (!agent) return;
+					frm.add_custom_button(__("Enrich Amazon Listing"), () => enrich(frm), __("Amazon"));
+				});
+			} catch (e) {
+				// eslint-disable-next-line no-console
+				console.error("Amazon listing agent: could not add its Item button", e);
+			}
 		},
 	});
 
@@ -41,13 +60,7 @@
 			})
 			.then((listings) => {
 				if (!listings || !listings.length) {
-					frappe.msgprint({
-						title: __("No Amazon listing"),
-						message: __(
-							"This item has no Amazon Product Listing, so there is nothing for the agent to enrich. Sync the listing from Amazon first."
-						),
-						indicator: "orange",
-					});
+					offer_to_create(frm);
 					return;
 				}
 				if (listings.length === 1) {
@@ -56,6 +69,41 @@
 				}
 				pick(listings);
 			});
+	}
+
+	// An item nobody has listed on Amazon yet. The whole agent is keyed on a listing —
+	// it reads the listing's own fields, and writes its enrichment against the sku — so
+	// there is a row to register before a run can start. It is registered locally and
+	// says so (marked incomplete, never synced); nothing is sent to Amazon here, and
+	// the copy still only reaches Amazon when a reviewer approves it.
+	function offer_to_create(frm) {
+		frappe.confirm(
+			__(
+				"This item has no Amazon Product Listing yet. Create one from this item and enrich it?<br><br>The listing is created here only — marked <b>incomplete</b>, with nothing sent to Amazon."
+			),
+			() => {
+				frappe.call({
+					method: "alaiy_os_agent_amazon_listing.api.enrich_item",
+					args: { item_code: frm.doc.name },
+					freeze: true,
+					freeze_message: __("Preparing the listing…"),
+					callback: (r) => {
+						const result = r.message || {};
+						if (!result.sku) return;
+						if (result.created) {
+							frappe.show_alert({
+								message: __("Amazon Product Listing {0} created.", [result.sku]),
+								indicator: "green",
+							});
+						}
+						go(result.sku);
+					},
+					// A server-side refusal (no connector, a variant template, a sku
+					// that belongs to another item) raises its own dialog with the
+					// reason — there is nothing useful to add on top of it.
+				});
+			}
+		);
 	}
 
 	function pick(listings) {
