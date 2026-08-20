@@ -639,6 +639,29 @@ class RunAgentPage {
 			</div>
 		`);
 
+		// Produced images are stored privately in S3, so a url on the run output
+		// identifies an object rather than being loadable. Swap in a viewable link per
+		// tile once the listing can be asked for them; a run whose images are still
+		// rendering has nothing to swap, and a url that is not ours comes back
+		// unchanged, so this is a no-op in both of those cases.
+		if (inputs && inputs.sku && images.length) {
+			frappe
+				.call({
+					method: "alaiy_os_agent_amazon_listing.api.image_view_links",
+					args: { sku: inputs.sku },
+				})
+				.then((r) => {
+					const links = (r && r.message) || {};
+					this.$flow_area.find(".ra-image-tile img, .ra-image-tile a").each((_i, el) => {
+						const $el = $(el);
+						const attr = el.tagName === "IMG" ? "src" : "href";
+						const link = links[$el.attr(attr)];
+						if (link) $el.attr(attr, link);
+					});
+				})
+				.catch(() => {});
+		}
+
 		this.$flow_area.find(".ra-collapse-btn").on("click", (e) => {
 			const target = $(e.currentTarget).data("target");
 			const key = target === "original" ? "origCollapsed" : "genCollapsed";

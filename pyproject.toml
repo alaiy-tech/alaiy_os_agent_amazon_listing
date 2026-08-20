@@ -9,6 +9,9 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     # "frappe~=16.0.0" # Installed and managed by bench.
+    # Produced images are stored in S3 (see image_store.py). Frappe does not
+    # guarantee boto3, and a bench without it silently keeps writing local Files.
+    "boto3>=1.34",
 ]
 
 [build-system]

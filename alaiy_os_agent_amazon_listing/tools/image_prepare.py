@@ -28,8 +28,10 @@ AlphaShop credential — on a managed bench they are served by the billing servi
     main image degrades to a translated image with a note and a `needs_review` entry,
     rather than silently shipping a main image that Amazon will suppress.
 
-Each processed photo is stored as its own public File, so the supplier's original is
-never overwritten and a bad result is always recoverable.
+Each processed photo is stored as its own object — in S3 when the bench configures a
+bucket, otherwise a local Frappe File (see `image_store`) — so the supplier's original
+is never overwritten and a bad result is always recoverable. The main image is filed
+under `images/generated/` and the translated gallery under `images/translated/`.
 
 Two halves, split across two stages. `prepare_product_images` runs inside the agent's
 run: it decides whether anything happens at all, resolves the plan, and queues it. The
@@ -42,7 +44,7 @@ from concurrent.futures import ThreadPoolExecutor
 import frappe
 from alaiy_os.engine import llm
 
-from alaiy_os_agent_amazon_listing import image_stage
+from alaiy_os_agent_amazon_listing import image_stage, image_store
 from alaiy_os_agent_amazon_listing.tools import handlers as base
 from alaiy_os_agent_amazon_listing.tools import images
 
@@ -304,7 +306,20 @@ def render_prepared(sku, work):
 		# Saving writes a File row, so it stays on this thread too.
 		fresh[key] = {
 			"url": images.save_public_image(
-				f"listing-{target['role']}", out_bytes, out_media_type, default_ext=".jpg"
+				f"listing-{target['role']}",
+				out_bytes,
+				out_media_type,
+				default_ext=".jpg",
+				# The main image is composited onto white, the gallery is a photo with
+				# its text rewritten — separate key prefixes so the two are told apart
+				# in the bucket without opening them. A main image that had to be
+				# translated is filed as what it actually is.
+				category=(
+					image_store.GENERATED
+					if target["role"] == MAIN and not degraded
+					else image_store.TRANSLATED
+				),
+				metadata={"sku": sku, "role": target["role"], "source-url": target["source_url"]},
 			),
 			"note": _NO_EXTRACT_NOTE if degraded else None,
 		}
