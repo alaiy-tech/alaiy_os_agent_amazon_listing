@@ -174,6 +174,61 @@ class TestEnablement(NoBucketTestCase):
 		self.assertEqual(image_store.region(), image_store.DEFAULT_REGION)
 
 
+class TestCredentials(UnitTestCase):
+	"""Credentials are optional, and read the same way from either place — because a
+	bench's web process and its background worker do not see the same environment,
+	and an upload that works in the console but not in a job is the failure mode
+	this exists to remove."""
+
+	def setUp(self):
+		p = patch.dict(os.environ, {image_store.BUCKET_VAR: BUCKET}, clear=False)
+		p.start()
+		self.addCleanup(p.stop)
+		for var in (image_store.ACCESS_KEY_VAR, image_store.SECRET_KEY_VAR, image_store.SESSION_TOKEN_VAR):
+			os.environ.pop(var, None)
+			_unset_conf(self, var)
+		image_store._clients.clear()
+		self.addCleanup(image_store._clients.clear)
+
+	def test_nothing_configured_leaves_it_to_boto3(self):
+		"""An instance role or a profile must not be overridden by empty values."""
+		self.assertEqual(image_store.credentials(), {})
+
+	def test_site_config_credentials_are_passed_to_the_client(self):
+		_set_conf(self, image_store.ACCESS_KEY_VAR, "AKIAEXAMPLE")
+		_set_conf(self, image_store.SECRET_KEY_VAR, "s3cr3t")
+		self.assertEqual(
+			image_store.credentials(),
+			{"aws_access_key_id": "AKIAEXAMPLE", "aws_secret_access_key": "s3cr3t"},
+		)
+		with patch("boto3.client") as boto_client:
+			image_store.client()
+		self.assertEqual(boto_client.call_args.kwargs["aws_access_key_id"], "AKIAEXAMPLE")
+		self.assertEqual(boto_client.call_args.kwargs["aws_secret_access_key"], "s3cr3t")
+
+	def test_a_session_token_rides_along(self):
+		_set_conf(self, image_store.ACCESS_KEY_VAR, "AKIAEXAMPLE")
+		_set_conf(self, image_store.SECRET_KEY_VAR, "s3cr3t")
+		_set_conf(self, image_store.SESSION_TOKEN_VAR, "tok")
+		self.assertEqual(image_store.credentials()["aws_session_token"], "tok")
+
+	def test_half_a_credential_is_no_credential(self):
+		"""A key id with no secret would otherwise sign nothing and read as a
+		permissions problem."""
+		_set_conf(self, image_store.ACCESS_KEY_VAR, "AKIAEXAMPLE")
+		self.assertEqual(image_store.credentials(), {})
+
+	def test_rotating_the_key_does_not_reuse_the_old_client(self):
+		_set_conf(self, image_store.ACCESS_KEY_VAR, "AKIAOLD")
+		_set_conf(self, image_store.SECRET_KEY_VAR, "old")
+		with patch("boto3.client") as boto_client:
+			image_store.client()
+			frappe.conf[image_store.ACCESS_KEY_VAR.lower()] = "AKIANEW"
+			image_store.client()
+		self.assertEqual(boto_client.call_count, 2)
+		self.assertEqual(boto_client.call_args.kwargs["aws_access_key_id"], "AKIANEW")
+
+
 class TestKeys(StoreTestCase):
 	def test_role_decides_the_prefix(self):
 		"""The white-background main image and a translated gallery photo are filed

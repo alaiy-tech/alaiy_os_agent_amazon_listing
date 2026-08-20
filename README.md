@@ -209,7 +209,7 @@ else changes: `tools/images.py` is the only place that knows which backend answe
 |---|---|---|
 | `S3_BUCKET` | *(unset)* | The bucket. **Its presence is the switch** — unset means local Files. Use `white-background`. |
 | `IMAGE_S3_REGION` | `ap-south-1` | The bucket's region. |
-| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | *(unset)* | Resolved by boto3's own chain, so an instance role or a profile works instead. This app never reads them and holds no credential. |
+| `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` | *(unset)* | Optional. Set them and they are handed to the client explicitly; leave them out and boto3 resolves an instance role, a profile or the ambient environment on its own. |
 | `IMAGE_S3_PREFIX` | `images/` | Key prefix. Objects land under `<prefix><category>/<YYYY>/<MM>/`. |
 | `IMAGE_S3_ACL` | `private` | The object ACL. `none` sends no ACL header — needed only on a bucket that still uses ACLs but rejects this one. |
 | `IMAGE_S3_URL_EXPIRY` | `604800` | Seconds a presigned link stays valid (7 days is SigV4's ceiling). |
@@ -220,6 +220,36 @@ else changes: `tools/images.py` is the only place that knows which backend answe
 Every one of these can equally be set in `site_config.json` under the same name
 lowercased (`bench --site $SITE set-config s3_bucket white-background`); the
 environment wins where both are present.
+
+**On credentials.** An instance role is the better answer wherever you can attach
+one: nothing is stored, nothing rotates, and both the web process and the workers get
+it for free. Reach for `aws_access_key_id` / `aws_secret_access_key` in
+`site_config.json` when you cannot — a bench is the awkward case, because the upload
+runs on a supervisor-managed worker that inherits neither your login shell's
+environment nor reliably your `HOME`, so `~/.aws/credentials` can work in
+`bench console` and not in a background job. site_config is the one place both
+processes are guaranteed to read the same thing:
+
+```bash
+bench --site $SITE set-config aws_access_key_id AKIA...
+bench --site $SITE set-config aws_secret_access_key ...
+bench restart
+```
+
+The IAM policy needs only `s3:PutObject` and `s3:GetObject` on
+`arn:aws:s3:::<bucket>/images/*`.
+
+`boto3` is a dependency of this app, so a fresh install has it. A bench that
+installed the app **before** S3 landed will not, and that looks exactly like nothing
+happening: a configured bucket still writing local Files. Fix it with
+
+```bash
+./env/bin/pip install boto3   # or: bench setup requirements
+bench restart
+```
+
+and check **Error Log** for *"Amazon listing images: boto3 missing"*, which is what
+the app writes when it finds itself in that state.
 
 **The main image is filed apart from the gallery**, because the two are different work
 and a reviewer — or a lifecycle rule — wants to tell them apart without opening them:

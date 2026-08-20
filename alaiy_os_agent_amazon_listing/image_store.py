@@ -27,10 +27,12 @@ because a site silently drifting back to local disk is the failure this whole mo
 exists to remove.
 
 Configuration is read from the environment first, then from `site_config.json` under
-the same names, lowercased (`s3_bucket`, `image_s3_region`, …). Credentials are never
-read by this module: `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
-`AWS_SESSION_TOKEN`, an instance role or a profile are resolved by boto3's own chain,
-so nothing about them lands in this repo. See the README for the full table.
+the same names, lowercased (`s3_bucket`, `image_s3_region`, …). Credentials follow the
+same rule but are *optional*: name `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`
+(/ `AWS_SESSION_TOKEN`) and they are handed to the client explicitly; leave them out —
+the better choice — and an instance role, a profile or the ambient environment is
+resolved by boto3's own chain. Either way nothing about them lands in this repo. See
+the README for the full table.
 """
 
 import os
@@ -57,6 +59,17 @@ NO_ACL = "none"  # IMAGE_S3_ACL=none sends no ACL at all; see `upload`.
 ENDPOINT_VAR = "IMAGE_S3_ENDPOINT_URL"  # MinIO and friends; unset means real S3.
 ATTEMPTS_VAR = "IMAGE_S3_MAX_ATTEMPTS"
 DEFAULT_ATTEMPTS = 3
+
+# Credentials. Normally you do NOT set these: boto3 finds an instance role, a profile
+# or the standard environment on its own, and a role beats a stored secret every time.
+# They exist because a Frappe bench is the awkward case — the upload happens on a
+# supervisor-managed worker, which inherits neither your login shell's environment nor
+# reliably your HOME, so "it works in the console" and "it works in a background job"
+# can differ. Naming them here, under the same env-then-site_config rule as everything
+# else, is the one place both processes are guaranteed to read the same thing.
+ACCESS_KEY_VAR = "AWS_ACCESS_KEY_ID"
+SECRET_KEY_VAR = "AWS_SECRET_ACCESS_KEY"
+SESSION_TOKEN_VAR = "AWS_SESSION_TOKEN"
 
 # A CDN (or any read-only public origin) in front of the bucket. Set it and stored
 # urls become `<base>/<key>`: already fetchable, so nothing is presigned and nothing
@@ -128,9 +141,11 @@ def region():
 def enabled():
 	"""Whether produced images go to S3 at all.
 
-	Bucket configured and boto3 importable. boto3 ships with Frappe, so the import
-	check is really about an unusual environment rather than an expected one — but a
-	missing library must degrade to local Files like any other S3 problem, not raise
+	Bucket configured and boto3 importable. The library is declared as a dependency of
+	this app, but a bench that installed the app before that — or that never ran
+	`bench setup requirements` — will not have it, and this is exactly how that
+	looks: a configured bucket quietly writing local Files. So the missing library is
+	said out loud, once, and degrades like any other S3 problem rather than raising
 	inside an agent run.
 	"""
 	if not bucket():
@@ -138,10 +153,19 @@ def enabled():
 	try:
 		import boto3  # noqa: F401
 	except ImportError:
-		frappe.log_error(
-			title="Amazon listing images: boto3 missing",
-			message=f"{BUCKET_VAR} is set but boto3 is not installed; storing images locally.",
-		)
+		# Once per request, not once per photo: this is called for every image on
+		# every listing, and a wall of identical rows buries the one thing to read.
+		if not getattr(frappe.local, "amazon_listing_boto3_warned", False):
+			frappe.local.amazon_listing_boto3_warned = True
+			frappe.log_error(
+				title="Amazon listing images: boto3 missing",
+				message=(
+					f"{BUCKET_VAR} is set to '{bucket()}' but boto3 is not installed in this "
+					"bench's environment, so produced images are being stored as local Files "
+					"instead. Install it (`./env/bin/pip install boto3`, or `bench setup "
+					"requirements`) and restart."
+				),
+			)
 		return False
 	return True
 
@@ -162,13 +186,35 @@ def max_attempts():
 	return max(1, _int_setting(ATTEMPTS_VAR, DEFAULT_ATTEMPTS))
 
 
+def credentials():
+	"""Explicit credentials for the client, or {} to leave it to boto3's own chain.
+
+	Both halves or neither: a key id with no secret is a misconfiguration that would
+	otherwise present as an unsigned request, which is a confusing way to find out.
+	A session token is only meaningful alongside them, so it rides along.
+	"""
+	access_key = setting(ACCESS_KEY_VAR)
+	secret_key = setting(SECRET_KEY_VAR)
+	if not access_key or not secret_key:
+		return {}
+
+	values = {"aws_access_key_id": access_key, "aws_secret_access_key": secret_key}
+	token = setting(SESSION_TOKEN_VAR)
+	if token:
+		values["aws_session_token"] = token
+	return values
+
+
 def client():
 	"""A cached S3 client for the configured bucket."""
 	import boto3
 	from botocore.config import Config
 
 	endpoint = setting(ENDPOINT_VAR)
-	key = (bucket(), region(), endpoint)
+	creds = credentials()
+	# The cache key covers the credential identity, not the secret: a site that
+	# rotates its key must not keep signing with a client built from the old one.
+	key = (bucket(), region(), endpoint, creds.get("aws_access_key_id"))
 	if key in _clients:
 		return _clients[key]
 
@@ -181,6 +227,7 @@ def client():
 				# botocore's own retries sit underneath ours: these cover the
 				# connection-level failures that never become a ClientError.
 				config=Config(retries={"max_attempts": max_attempts(), "mode": "standard"}),
+				**creds,
 			)
 	return _clients[key]
 
