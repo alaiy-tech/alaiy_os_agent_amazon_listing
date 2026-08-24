@@ -215,6 +215,53 @@ def bulk_enrich_items(
 
 
 @frappe.whitelist()
+def count_listed_items(item_codes):
+	"""
+	How many of these Items already have an Amazon Product Listing, or None.
+
+	What the Item list view's dialog says before a bulk run starts: the rest of the
+	selection is what this run will have to register from the item itself.
+
+	Counted here rather than in the browser because the selection is routinely
+	hundreds of item codes. `frappe.db.get_list` goes out as GET, so the whole
+	`product in [...]` filter lands in the request line — past a hundred or so items
+	nginx rejects it with "Request Line is too large" before the dialog can open. This
+	takes the codes in a POST body instead.
+
+	Counted over DISTINCT products, not rows: one Item can hold several listings, and
+	it is still one item that needs nothing registered.
+
+	None when the connector is not installed or the user cannot read listings — the
+	caller says nothing rather than guessing a number.
+	"""
+	from alaiy_os_agent_amazon_listing import item_listing
+
+	if isinstance(item_codes, str):
+		item_codes = json.loads(item_codes)
+	if not item_codes:
+		return 0
+
+	# Connector first: has_permission on a DocType this site does not have would fail
+	# with something nobody can act on. Same ordering as enrich_item.
+	if not item_listing.connector_installed():
+		return None
+	if not frappe.has_permission(item_listing.LISTING_DOCTYPE, "read"):
+		return None
+
+	# Deduplicated here rather than with `distinct=True`, which prepends DISTINCT while
+	# leaving the default `order by modified desc` in place — a column that is not in
+	# the select list, which MySQL rejects under ONLY_FULL_GROUP_BY. The row set is one
+	# listing per selected item at worst, so a Python set costs nothing.
+	products = frappe.get_all(
+		item_listing.LISTING_DOCTYPE,
+		filters={"product": ["in", item_codes]},
+		pluck="product",
+		limit_page_length=0,
+	)
+	return len(set(products))
+
+
+@frappe.whitelist()
 def approve_listings(names):
 	"""
 	Approve many enriched listings at once — the list view's "Approve" action.

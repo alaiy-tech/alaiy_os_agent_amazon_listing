@@ -71,18 +71,25 @@ frappe.listview_settings["Item"] = frappe.listview_settings["Item"] || {};
 		count_listed(item_codes).then((listed) => open_dialog(agent, item_codes, listed));
 	}
 
-	// How many of these items already have an Amazon Product Listing. Counted over the
-	// distinct items rather than the rows, since one item can hold several listings —
-	// which is also why the limit is not simply the number of items.
+	// How many of these items already have an Amazon Product Listing.
+	//
+	// Asked of the server, NOT of `frappe.db.get_list`, which hard-codes type: "GET" —
+	// the whole `product in [...]` filter would go into the request line, and this
+	// selection is routinely hundreds of item codes. Past a hundred or so nginx
+	// rejects it with "Request Line is too large" (400) before the dialog can open,
+	// and the `.catch` below would swallow it: the count would silently vanish exactly
+	// when the selection is big enough to need it. frappe.xcall POSTs, so the codes
+	// ride in the body. The server also counts the DISTINCT items, with no row limit
+	// to truncate it.
 	function count_listed(item_codes) {
-		return frappe.db
-			.get_list("Amazon Product Listing", {
-				filters: { product: ["in", item_codes] },
-				fields: ["product"],
-				limit: item_codes.length * 5 + 20,
+		return frappe
+			.xcall("alaiy_os_agent_amazon_listing.api.count_listed_items", {
+				item_codes: item_codes,
 			})
-			.then((rows) => new Set((rows || []).map((row) => row.product)).size)
-			.catch(() => null); // no connector, or no read access — say nothing rather than guess
+			// The endpoint answers null for "cannot tell" (no connector, no read access),
+			// which arrives here as undefined — normalised so open_dialog has one case.
+			.then((count) => (count === undefined || count === null ? null : count))
+			.catch(() => null);
 	}
 
 	function open_dialog(agent, item_codes, listed) {

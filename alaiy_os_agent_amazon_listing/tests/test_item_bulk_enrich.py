@@ -18,6 +18,7 @@ Touches the database. No agent runs and no jobs: the enqueue is patched out, so 
 is about what the batch says, not about the workers.
 """
 
+import json
 import unittest
 from unittest.mock import patch
 
@@ -150,6 +151,38 @@ class TestBulkEnrichItems(IntegrationTestCase):
 				api.bulk_enrich_items([bad.name])
 
 		self.assertEqual(frappe.db.count(BATCH_DOCTYPE), before)
+
+	def test_the_selection_is_counted_over_distinct_items(self):
+		# What the dialog says before the run: how many of the ticked items already
+		# have a listing, so the rest is what this run will have to register. Counted
+		# over the items, not the rows — an item with two listings is still one item
+		# that needs nothing registered.
+		listed = self.item()
+		self.listing(f"AAA-{frappe.generate_hash(length=6)}", product=listed.name)
+		self.listing(f"BBB-{frappe.generate_hash(length=6)}", product=listed.name)
+		unlisted = self.item()
+
+		self.assertEqual(api.count_listed_items([listed.name, unlisted.name]), 1)
+		self.assertEqual(api.count_listed_items([unlisted.name]), 0)
+
+	def test_the_count_takes_the_selection_as_json(self):
+		# How it arrives from frappe.call: the browser sends a JSON array, and the whole
+		# point of this endpoint is that it comes in a POST body rather than a GET filter.
+		item = self.item()
+		self.listing(f"JSON-{frappe.generate_hash(length=6)}", product=item.name)
+
+		self.assertEqual(api.count_listed_items(json.dumps([item.name])), 1)
+
+	def test_an_empty_selection_counts_zero(self):
+		self.assertEqual(api.count_listed_items([]), 0)
+
+	def test_the_count_says_nothing_without_the_connector(self):
+		# None, not 0: "cannot tell" and "none of them are listed" are different
+		# answers, and the dialog stays quiet for the first.
+		with patch(
+			"alaiy_os_agent_amazon_listing.item_listing.connector_installed", return_value=False
+		):
+			self.assertIsNone(api.count_listed_items([self.item().name]))
 
 	def test_the_batch_knobs_and_toggles_survive_the_delegation(self):
 		item = self.item()
