@@ -6,21 +6,21 @@ Which house brands a deployment has, and what each one covers, is a fact
 about one client's own brand portfolio, not about this agent, so this module
 owns none of it -- it only knows the deployment-agnostic mechanism. A
 deployment declares its house brands under `amazon_listing_house_brands` in
-its own hooks.py (a flat list of the brand names themselves, e.g.
-`["BLUEGEARS", "BLUETAILS"]` -- see `alaiy_os_commerce/hooks.py`) and
+its own hooks.py (a flat list of the brand names themselves -- see whichever
+customer app overrides this agent, per `agent_meta.find_override`) and
 describes what each one covers in its own `agents/amazon_listing.md` prompt
 override, the same file that carries its house style and category rules. A
 site with no house brands just registers neither, and this agent enriches
 listings with no brand opinion at all rather than failing.
 
 Unlike the product type (see product_type.py), this genuinely IS the model's
-own judgement: a category (Item Group) does not reliably say which house
-brand a product belongs to -- this deployment's own catalogue has no
-category that maps cleanly onto one -- so the model reads the title and
-description it just wrote and decides, guided by whatever this deployment's
-prompt override told it those brands cover. This module's only job at save
-time is to trust that answer when it names one of this deployment's actual
-brands, and otherwise treat it as no brand at all.
+own judgement: a category (Item Group) is a fact about where a product sells
+today, not about which of a seller's own house brands it belongs to, and the
+two need not line up at all. So the model reads the title and description it
+just wrote and decides, guided by whatever the deployment's prompt override
+told it those brands cover. This module's only job at save time is to trust
+that answer when it names one of the deployment's actual registered brands,
+and otherwise treat it as no brand at all.
 """
 
 import frappe

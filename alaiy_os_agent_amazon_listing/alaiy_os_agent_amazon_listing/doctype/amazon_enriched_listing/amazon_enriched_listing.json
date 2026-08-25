@@ -102,7 +102,7 @@
    "read_only": 1
   },
   {
-   "description": "Which of this site's own house brands this listing's product belongs to, classified by the agent from the finished title and description -- never from its category (Item Group), which does not map cleanly onto house brands in this catalogue. Empty means either this site has no house brands at all, or the agent didn't think any of them fit; both leave the choice to a reviewer. Lives on this enrichment record only -- never written to the Amazon Product Listing.",
+   "description": "Which of this site's own house brands this listing's product belongs to, classified by the agent from the finished title and description -- never from its category (Item Group), which is a fact about where the product sells today, not about which of this site's own brands it belongs to. Empty means either this site has no house brands at all, or the agent didn't think any of them fit; both leave the choice to a reviewer. Lives on this enrichment record only -- never written to the Amazon Product Listing.",
    "fieldname": "brand",
    "fieldtype": "Data",
    "in_list_view": 1,
