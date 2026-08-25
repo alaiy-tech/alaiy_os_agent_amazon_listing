@@ -18,20 +18,19 @@ frappe.ui.form.on("Amazon Enriched Listing", {
 	refresh(frm) {
 		render_image_preview(frm);
 		render_product_type_help(frm);
-		render_house_brand_help(frm);
+		render_brand_help(frm);
 	},
 });
 
-// The assigned house brand came from the product's category (Item Group),
-// via whatever this site has registered — not from anything the model
-// wrote, and not Amazon's own brand attribute (that one lives on the
-// connector's Amazon Product Listing, read-only, and is a different fact).
-// A reviewer editing it needs to know that up front: which category it was
-// derived from, and whether an empty field means "unmapped category" or
-// "this site doesn't assign house brands at all" — those call for
-// different fixes.
-function render_house_brand_help(frm) {
-	const field = frm.get_field("house_brand");
+// The assigned brand came from the product's category (Item Group), via
+// whatever this site has registered — not from anything the model wrote,
+// and never pushed to the Amazon Product Listing (this field lives on the
+// enrichment record only). A reviewer editing it needs to know that up
+// front: which category it was derived from, and whether an empty field
+// means "unmapped category" or "this site doesn't assign brands at all" —
+// those call for different fixes.
+function render_brand_help(frm) {
+	const field = frm.get_field("brand");
 	if (!field || frm.is_new()) return;
 
 	frappe
@@ -45,11 +44,11 @@ function render_house_brand_help(frm) {
 			if (!is_configured) {
 				text = __("This site doesn't assign house brands, so this is always blank unless set by hand.");
 			} else if (category) {
-				text = frm.doc.house_brand
+				text = frm.doc.brand
 					? __("Mapped from category: {0}. Edit if it's wrong before approving.", [category])
-					: __("Category '{0}' has no house brand mapping — pick one by hand.", [category]);
+					: __("Category '{0}' has no brand mapping — pick one by hand.", [category]);
 			} else {
-				text = __("This listing has no linked product, so there's no category to map a house brand from.");
+				text = __("This listing has no linked product, so there's no category to map a brand from.");
 			}
 			field.set_new_description(text);
 		})

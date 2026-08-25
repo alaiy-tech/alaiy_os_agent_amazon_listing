@@ -552,11 +552,9 @@ def _save_product_type(doc, source_listing):
 def _save_brand(doc, source_listing):
 	"""Assign the house brand this listing's product sells under, from its category.
 
-	Named `house_brand` throughout, never `brand` -- the connector's
-	`Amazon Product Listing.brand` is a different fact (whatever brand Amazon
-	itself has on file for the ASIN), sync-owned from the other direction.
-	Colliding the two names was an actual merge conflict once; keeping them
-	distinct is what avoids a second one.
+	Lives on this enrichment record only -- see `_push_to_listing` in
+	amazon_enriched_listing.py, which deliberately never writes it to the
+	Amazon Product Listing.
 
 	Derived, like the product type just above: the model has no opinion on
 	which house brand a product belongs to, so this never asks it to.
@@ -569,10 +567,10 @@ def _save_brand(doc, source_listing):
 	if not brands.is_configured():
 		return
 
-	doc.house_brand = brands.resolve(source_listing)
-	if not doc.house_brand:
+	doc.brand = brands.resolve(source_listing)
+	if not doc.brand:
 		doc.needs_review = "\n".join(
-			filter(None, [doc.needs_review, "House Brand (no mapping for this product's category)"])
+			filter(None, [doc.needs_review, "Brand (no mapping for this product's category)"])
 		)
 
 

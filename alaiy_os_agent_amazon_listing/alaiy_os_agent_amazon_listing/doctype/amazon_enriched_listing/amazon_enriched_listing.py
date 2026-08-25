@@ -72,11 +72,13 @@ class AmazonEnrichedListing(Document):
 
 		The four content fields the agent produces are written, plus the reviewed
 		product type (see _sync_product_type — a listing without one cannot be
-		updated on Amazon at all) and the assigned house brand (see _sync_brand).
-		Offer data (price, quantity, condition, fulfillment channel), the ASIN
-		and the marketplace belong to the connector and are never touched here
-		— and neither is the listing's own `suppression_reasons`, which only
-		Amazon clears.
+		updated on Amazon at all). The assigned brand is deliberately NOT among
+		these: it lives on this enrichment record only, never on the Amazon
+		Product Listing — see `brand`'s own field description. Offer data
+		(price, quantity, condition, fulfillment channel), the ASIN and the
+		marketplace belong to the connector and are never touched here — and
+		neither is the listing's own `suppression_reasons`, which only Amazon
+		clears.
 
 		This writes to the local Amazon Product Listing record, not to Amazon. Submitting it
 		is the connector's job, on its own schedule.
@@ -91,7 +93,6 @@ class AmazonEnrichedListing(Document):
 		listing_doc.description = self.description
 
 		self._sync_product_type(listing_doc)
-		self._sync_brand(listing_doc)
 		self._sync_bullets(listing_doc)
 		self._sync_keywords(listing_doc)
 		self._sync_images(listing_doc)
@@ -136,27 +137,6 @@ class AmazonEnrichedListing(Document):
 				"classifies this listing's new title differently. It decides which "
 				"attributes Amazon requires, so check the listing still validates."
 			)
-
-	def _sync_brand(self, listing_doc):
-		"""Publish the assigned house brand onto the listing.
-
-		Writes `house_brand`, never `brand` — that field is the connector's own,
-		holding whatever brand Amazon has on file for the ASIN, and is sync-owned
-		and read-only for a reason (see that field's own description). The two
-		are different facts that happen to both be called "brand" in casual
-		speech: Amazon's is who created the ASIN's content, ours is which of our
-		own three labels the product sells under.
-
-		Unlike product type there is no disagreement to surface here: house
-		brand is derived once, from the product's category, not re-asked on
-		every run against something that can drift. An enrichment with no house
-		brand — this site assigns none, or the category is unmapped — leaves
-		the listing's existing value alone rather than blanking it, the same
-		rule bullets, keywords and images already follow.
-		"""
-		if not (self.house_brand or "").strip():
-			return
-		listing_doc.house_brand = self.house_brand
 
 	def _sync_bullets(self, listing_doc):
 		"""Replace the listing's key product features with the approved ones.
