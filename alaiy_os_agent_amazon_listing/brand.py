@@ -1,6 +1,6 @@
 # Copyright (c) 2026, Alaiy and contributors
 # For license information, please see license.txt
-"""Which house brand a listing's product belongs to, for the enrichment lifecycle.
+"""Which brand a listing's product belongs to, for the enrichment lifecycle.
 
 Which categories map to which brands is a fact about one client's catalogue,
 not about this agent, so this module owns none of it. It only knows two
@@ -13,9 +13,8 @@ ships without; a site with no brands to assign just never registers one, and
 this module answers None for every listing rather than failing.
 
 Like the product type (see product_type.py), the model has no opinion on
-which house brand a listing's product sells under -- it is derived from a
-fact the agent did not produce, so this is never part of the LLM's own
-output.
+which brand a listing's product sells under -- it is derived from a fact
+the agent did not produce, so this is never part of the LLM's own output.
 """
 
 import frappe
@@ -50,7 +49,7 @@ def category_of(source_listing):
 
 
 def resolve(source_listing):
-	"""The house brand for this listing's category, or None.
+	"""The brand for this listing's category, or None.
 
 	None covers three different situations a caller does not need to tell
 	apart: no site-registered mapping at all, a linked product with no

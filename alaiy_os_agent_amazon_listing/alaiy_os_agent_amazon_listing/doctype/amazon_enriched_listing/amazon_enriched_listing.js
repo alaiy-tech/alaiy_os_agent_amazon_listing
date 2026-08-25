@@ -42,7 +42,7 @@ function render_brand_help(frm) {
 			const { category, is_configured } = r.message || {};
 			let text;
 			if (!is_configured) {
-				text = __("This site doesn't assign house brands, so this is always blank unless set by hand.");
+				text = __("This site doesn't assign brands, so this is always blank unless set by hand.");
 			} else if (category) {
 				text = frm.doc.brand
 					? __("Mapped from category: {0}. Edit if it's wrong before approving.", [category])

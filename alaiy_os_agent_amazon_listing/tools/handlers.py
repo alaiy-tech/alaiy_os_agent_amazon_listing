@@ -550,14 +550,14 @@ def _save_product_type(doc, source_listing):
 
 
 def _save_brand(doc, source_listing):
-	"""Assign the house brand this listing's product sells under, from its category.
+	"""Assign the brand this listing's product sells under, from its category.
 
 	Lives on this enrichment record only -- see `_push_to_listing` in
 	amazon_enriched_listing.py, which deliberately never writes it to the
 	Amazon Product Listing.
 
 	Derived, like the product type just above: the model has no opinion on
-	which house brand a product belongs to, so this never asks it to.
+	which brand a product belongs to, so this never asks it to.
 
 	Only flags `needs_review` when this site actually assigns brands at all
 	(`brand.is_configured()`) -- a deployment with no brand mapping registered
