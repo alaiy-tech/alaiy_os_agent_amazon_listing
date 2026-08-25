@@ -15,6 +15,7 @@
   "product_type",
   "product_type_display",
   "product_type_source",
+  "brand",
   "content_section",
   "bullet_points",
   "description",
@@ -99,6 +100,14 @@
    "label": "Product Type Source",
    "options": "none\nlisting\nsuggested\nreviewer",
    "read_only": 1
+  },
+  {
+   "description": "Which of our own brands this listing's product sells under, derived from its category (Item Group) via whatever this site has registered under `amazon_listing_brand_resolvers` -- see brand.py. Empty means either this site assigns no brands at all, or the category has no mapping; both leave the choice to a reviewer. Lives on this enrichment record only -- never written to the Amazon Product Listing.",
+   "fieldname": "brand",
+   "fieldtype": "Data",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "Brand"
   },
   {
    "fieldname": "content_section",

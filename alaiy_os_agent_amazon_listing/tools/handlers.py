@@ -31,6 +31,7 @@ DocType in "Needs Review" status, for the admin to edit and approve.
 
 import frappe
 
+from alaiy_os_agent_amazon_listing import brand as brands
 from alaiy_os_agent_amazon_listing import product_type as product_types
 from alaiy_os_agent_amazon_listing.tools import images
 
@@ -548,6 +549,31 @@ def _save_product_type(doc, source_listing):
 	doc.needs_review = "\n".join(filter(None, [doc.needs_review, flag]))
 
 
+def _save_brand(doc, source_listing):
+	"""Assign the brand this listing's product sells under, from its category.
+
+	Lives on this enrichment record only -- see `_push_to_listing` in
+	amazon_enriched_listing.py, which deliberately never writes it to the
+	Amazon Product Listing.
+
+	Derived, like the product type just above: the model has no opinion on
+	which brand a product belongs to, so this never asks it to.
+
+	Only flags `needs_review` when this site actually assigns brands at all
+	(`brand.is_configured()`) -- a deployment with no brand mapping registered
+	has nothing to say about brands, and nagging every listing about a field
+	that deployment doesn't use would train reviewers to ignore the flag.
+	"""
+	if not brands.is_configured():
+		return
+
+	doc.brand = brands.resolve(source_listing)
+	if not doc.brand:
+		doc.needs_review = "\n".join(
+			filter(None, [doc.needs_review, "Brand (no mapping for this product's category)"])
+		)
+
+
 def save_listing(listing, sku=None):
 	"""
 	Persist an enriched listing into the shared Amazon Enriched Listing DocType for
@@ -601,7 +627,9 @@ def save_listing(listing, sku=None):
 	doc.needs_review = "\n".join(listing.get("needs_review") or [])
 	doc.notes = "\n".join(listing.get("notes") or [])
 
-	_save_product_type(doc, get_listing(sku))
+	source_listing = get_listing(sku)
+	_save_product_type(doc, source_listing)
+	_save_brand(doc, source_listing)
 
 	# the ordered content -> pretty JSON; whole payload kept verbatim for audit
 	doc.bullets_json = frappe.as_json(listing.get("bullet_points") or [])

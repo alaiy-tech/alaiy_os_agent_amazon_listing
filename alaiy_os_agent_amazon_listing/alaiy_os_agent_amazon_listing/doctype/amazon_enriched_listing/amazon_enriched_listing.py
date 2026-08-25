@@ -72,10 +72,13 @@ class AmazonEnrichedListing(Document):
 
 		The four content fields the agent produces are written, plus the reviewed
 		product type (see _sync_product_type — a listing without one cannot be
-		updated on Amazon at all). Offer data (price, quantity,
-		condition, fulfillment channel), the ASIN and the marketplace belong to the
-		connector and are never touched here — and neither is the listing's own
-		`suppression_reasons`, which only Amazon clears.
+		updated on Amazon at all). The assigned brand is deliberately NOT among
+		these: it lives on this enrichment record only, never on the Amazon
+		Product Listing — see `brand`'s own field description. Offer data
+		(price, quantity, condition, fulfillment channel), the ASIN and the
+		marketplace belong to the connector and are never touched here — and
+		neither is the listing's own `suppression_reasons`, which only Amazon
+		clears.
 
 		This writes to the local Amazon Product Listing record, not to Amazon. Submitting it
 		is the connector's job, on its own schedule.
