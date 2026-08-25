@@ -549,28 +549,33 @@ def _save_product_type(doc, source_listing):
 	doc.needs_review = "\n".join(filter(None, [doc.needs_review, flag]))
 
 
-def _save_brand(doc, source_listing):
-	"""Assign the brand this listing's product sells under, from its category.
+def _save_brand(doc, listing):
+	"""Assign the house brand the model decided this product belongs under.
 
 	Lives on this enrichment record only -- see `_push_to_listing` in
 	amazon_enriched_listing.py, which deliberately never writes it to the
 	Amazon Product Listing.
 
-	Derived, like the product type just above: the model has no opinion on
-	which brand a product belongs to, so this never asks it to.
+	Unlike product type above, this IS the model's own judgement: it read the
+	title and description it just wrote and picked the house brand (if any)
+	that fits, per the HOUSE BRAND instructions in the prompt. Anything other
+	than one of this deployment's actual registered brands is treated as no
+	brand at all, in case a bad response slips past the schema.
 
-	Only flags `needs_review` when this site actually assigns brands at all
-	(`brand.is_configured()`) -- a deployment with no brand mapping registered
-	has nothing to say about brands, and nagging every listing about a field
-	that deployment doesn't use would train reviewers to ignore the flag.
+	Only flags `needs_review` when this site actually has house brands at all
+	(`brand.is_configured()`) -- a deployment with none registered has nothing
+	to say about brand, and nagging every listing about a field that
+	deployment doesn't use would train reviewers to ignore the flag.
 	"""
-	if not brands.is_configured():
+	valid = brands.valid_brands()
+	if not valid:
 		return
 
-	doc.brand = brands.resolve(source_listing)
+	candidate = (listing.get("brand") or "").strip()
+	doc.brand = candidate if candidate in valid else None
 	if not doc.brand:
 		doc.needs_review = "\n".join(
-			filter(None, [doc.needs_review, "Brand (no mapping for this product's category)"])
+			filter(None, [doc.needs_review, "Brand (doesn't clearly fit one of this site's house brands)"])
 		)
 
 
@@ -588,7 +593,8 @@ def save_listing(listing, sku=None):
 	Every field written here corresponds to a field on the Amazon Product Listing itself
 	(title -> title, description -> description, bullet_points -> bullet_points,
 	keywords -> keywords, images -> images, product_type -> product_type), plus the
-	three review fields the approval step needs. The agent produces nothing else.
+	three review fields the approval step needs and `brand` (see `_save_brand`) --
+	the one field here that is never published to the Amazon Product Listing at all.
 
 	List-valued fields (needs_review, notes) are flattened to one-per-line text for a
 	readable Desk form. The ordered parts — the bullets and the keywords — are written
@@ -629,7 +635,7 @@ def save_listing(listing, sku=None):
 
 	source_listing = get_listing(sku)
 	_save_product_type(doc, source_listing)
-	_save_brand(doc, source_listing)
+	_save_brand(doc, listing)
 
 	# the ordered content -> pretty JSON; whole payload kept verbatim for audit
 	doc.bullets_json = frappe.as_json(listing.get("bullet_points") or [])

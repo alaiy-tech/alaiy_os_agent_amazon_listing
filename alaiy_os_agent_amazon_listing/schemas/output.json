@@ -91,6 +91,13 @@
    ],
    "description": "Overall confidence in the enrichment given the quality of the source data and photos."
   },
+  "brand": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "description": "Which of this deployment's own house brands (if it has any -- see the system prompt) this product's title and description most clearly belong to. Never derived from the product's category or Item Group. Use the exact brand name as given in the prompt. null when this deployment has no house brands, or when the product does not clearly fit any of the ones it does have -- never force a guess."
+  },
   "notes": {
    "type": "array",
    "items": {

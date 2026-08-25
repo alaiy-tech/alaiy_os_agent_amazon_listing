@@ -22,33 +22,28 @@ frappe.ui.form.on("Amazon Enriched Listing", {
 	},
 });
 
-// The assigned brand came from the product's category (Item Group), via
-// whatever this site has registered — not from anything the model wrote,
-// and never pushed to the Amazon Product Listing (this field lives on the
-// enrichment record only). A reviewer editing it needs to know that up
-// front: which category it was derived from, and whether an empty field
-// means "unmapped category" or "this site doesn't assign brands at all" —
-// those call for different fixes.
+// The assigned brand is the model's own read of the finished title and
+// description, against whatever house brands this site's prompt override
+// describes — not derived from category, and never pushed to the Amazon
+// Product Listing (this field lives on the enrichment record only). A
+// reviewer editing it needs to know whether an empty field means "the agent
+// looked and nothing fit" or "this site doesn't assign house brands at all"
+// — those call for different reactions.
 function render_brand_help(frm) {
 	const field = frm.get_field("brand");
 	if (!field || frm.is_new()) return;
 
 	frappe
-		.call({
-			method: "alaiy_os_agent_amazon_listing.api.brand_context",
-			args: { sku: frm.doc.name },
-		})
+		.call({ method: "alaiy_os_agent_amazon_listing.api.brand_context" })
 		.then((r) => {
-			const { category, is_configured } = r.message || {};
+			const { is_configured, valid_brands } = r.message || {};
 			let text;
 			if (!is_configured) {
-				text = __("This site doesn't assign brands, so this is always blank unless set by hand.");
-			} else if (category) {
-				text = frm.doc.brand
-					? __("Mapped from category: {0}. Edit if it's wrong before approving.", [category])
-					: __("Category '{0}' has no brand mapping — pick one by hand.", [category]);
+				text = __("This site doesn't assign house brands, so this is always blank unless set by hand.");
+			} else if (frm.doc.brand) {
+				text = __("The agent read the title and description and picked this one. Edit if it's wrong before approving.");
 			} else {
-				text = __("This listing has no linked product, so there's no category to map a brand from.");
+				text = __("The agent didn't think this product clearly fits one of this site's house brands ({0}) — pick one by hand if it does.", [(valid_brands || []).join(", ")]);
 			}
 			field.set_new_description(text);
 		})
