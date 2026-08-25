@@ -1,79 +1,42 @@
 # Copyright (c) 2026, Alaiy and contributors
 # For license information, please see license.txt
-"""Which brand a listing's product belongs to, for the enrichment lifecycle.
+"""Which house brand a listing's product belongs to, for the enrichment lifecycle.
 
-Which categories map to which brands is a fact about one client's catalogue,
-not about this agent, so this module owns none of it. It only knows two
-things: how to read a listing's category (its product's Item Group), and how
-to ask whatever the site has registered under `amazon_listing_brand_resolvers`
--- a hooks.py list of dotted paths to a `category -> brand or None` function,
-the same shape `chat_tool_sources` and friends already use elsewhere in this
-codebase. `alaiy_os_commerce.brand_mapping` is the one example this agent
-ships without; a site with no brands to assign just never registers one, and
-this module answers None for every listing rather than failing.
+Which house brands a deployment has, and what each one covers, is a fact
+about one client's own brand portfolio, not about this agent, so this module
+owns none of it -- it only knows the deployment-agnostic mechanism. A
+deployment declares its house brands under `amazon_listing_house_brands` in
+its own hooks.py (a flat list of the brand names themselves, e.g.
+`["BLUEGEARS", "BLUETAILS"]` -- see `alaiy_os_commerce/hooks.py`) and
+describes what each one covers in its own `agents/amazon_listing.md` prompt
+override, the same file that carries its house style and category rules. A
+site with no house brands just registers neither, and this agent enriches
+listings with no brand opinion at all rather than failing.
 
-Like the product type (see product_type.py), the model has no opinion on
-which brand a listing's product sells under -- it is derived from a fact
-the agent did not produce, so this is never part of the LLM's own output.
+Unlike the product type (see product_type.py), this genuinely IS the model's
+own judgement: a category (Item Group) does not reliably say which house
+brand a product belongs to -- this deployment's own catalogue has no
+category that maps cleanly onto one -- so the model reads the title and
+description it just wrote and decides, guided by whatever this deployment's
+prompt override told it those brands cover. This module's only job at save
+time is to trust that answer when it names one of this deployment's actual
+brands, and otherwise treat it as no brand at all.
 """
 
 import frappe
 
-LISTING_DOCTYPE = "Amazon Product Listing"
+HOOK = "amazon_listing_house_brands"
 
-HOOK = "amazon_listing_brand_resolvers"
+
+def valid_brands():
+	"""The set of house brand names this deployment actually has, or empty."""
+	return set(frappe.get_hooks(HOOK) or [])
 
 
 def is_configured():
-	"""Whether this site has registered any brand mapping at all.
+	"""Whether this site has any house brands at all.
 
 	Distinguishes "nobody assigned a brand" from "this deployment doesn't use
 	brands" -- only the first is worth nagging a reviewer about.
 	"""
-	return bool(frappe.get_hooks(HOOK))
-
-
-def category_of(source_listing):
-	"""The Item Group this listing's product sells in, or None.
-
-	Reads through `Amazon Product Listing.product` -- optional, per that
-	field's own description, so a listing with no linked Item (not yet
-	matched to one, or an offer-only row) has no category and therefore no
-	brand. Guessing one from the title is exactly the kind of silent
-	assignment this module exists to avoid.
-	"""
-	product = (source_listing or {}).get("product")
-	if not product:
-		return None
-	return frappe.db.get_value("Item", product, "item_group")
-
-
-def resolve(source_listing):
-	"""The brand for this listing's category, or None.
-
-	None covers three different situations a caller does not need to tell
-	apart: no site-registered mapping at all, a linked product with no
-	category, or a category the mapping doesn't cover. All three mean the
-	same thing here -- no brand to assign automatically.
-
-	Every registered resolver is tried in order; the first to answer wins, so
-	several sources compose the same way `chat_tool_sources` does. A resolver
-	that raises is logged and skipped rather than failing the run -- a bad
-	site-side mapping should cost this listing its brand, not its enrichment.
-	"""
-	category = category_of(source_listing)
-	if not category:
-		return None
-
-	for entry in frappe.get_hooks(HOOK) or []:
-		try:
-			brand = frappe.get_attr(entry)(category)
-		except Exception:
-			frappe.log_error(
-				title="Amazon listing agent: brand resolver failed",
-				message=frappe.get_traceback(),
-			)
-			continue
-		if brand:
-			return brand
-	return None
+	return bool(valid_brands())

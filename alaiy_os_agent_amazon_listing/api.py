@@ -341,29 +341,20 @@ def image_view_links(sku):
 
 
 @frappe.whitelist()
-def brand_context(sku):
-	"""What the reviewer's form shows beside the Brand field — `{category, is_configured}`.
+def brand_context():
+	"""What the reviewer's form shows beside the Brand field — `{is_configured, valid_brands}`.
 
-	`category` is the product's Item Group, the fact the assigned brand (if
-	any) was actually derived from — read fresh from the listing rather than
-	stored on the enrichment, since it is the listing's own field and can
-	change independently of any run. `is_configured` says whether this site
-	assigns brands at all, so the form can explain an empty Brand field
-	correctly either way: nothing mapped, or nothing to map with.
-
-	A sku with no Amazon Product Listing answers with `category: None` rather
-	than throwing — the same "nothing to say yet" shape as image_view_links.
+	`is_configured` says whether this site has any house brands at all, so
+	the form can explain an empty Brand field correctly either way: nothing
+	to assign, or the agent looked and none of this site's house brands fit.
+	`valid_brands` is that list, for the form to show as context. The agent
+	classifies brand from the listing's title and description, never from
+	its category, so there is nothing here for this endpoint to look up on a
+	per-listing basis any more.
 	"""
 	from alaiy_os_agent_amazon_listing import brand as brands
 
-	listing_doctype = "Amazon Product Listing"
-	category = None
-	if frappe.db.exists(listing_doctype, sku):
-		listing_doc = frappe.get_doc(listing_doctype, sku)
-		listing_doc.check_permission("read")
-		category = brands.category_of(listing_doc)
-
-	return {"category": category, "is_configured": brands.is_configured()}
+	return {"is_configured": brands.is_configured(), "valid_brands": sorted(brands.valid_brands())}
 
 
 @frappe.whitelist()
