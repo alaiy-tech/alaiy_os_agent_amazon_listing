@@ -327,6 +327,7 @@ def get_product(sku):
 		"item_code": listing.get("product"),
 		"marketplace": listing.get("marketplace"),
 		"product_type": product_types.existing(listing),
+		"house_brand": brands.classify(listing),
 		"listing_status": listing.get("listing_status"),
 		"is_variation_parent": bool(listing.get("is_variation_parent")),
 		"parent_asin": listing.get("parent_asin"),
@@ -382,6 +383,17 @@ def get_product(sku):
 	product_type_note = _product_type_block(data["product_type"])
 	if product_type_note:
 		blocks.append({"type": "text", "text": product_type_note})
+
+	if data["house_brand"]:
+		blocks.append({
+			"type": "text",
+			"text": (
+				f"`house_brand` above is this product's house brand: {data['house_brand']}. "
+				"It has already been classified for you against this seller's own brands, "
+				"so it is not yours to decide or to second-guess. Put it in `brand` "
+				"exactly as written, and open the title with it."
+			),
+		})
 
 	if data["variant_specifications"]:
 		blocks.append({
@@ -549,35 +561,55 @@ def _save_product_type(doc, source_listing):
 	doc.needs_review = "\n".join(filter(None, [doc.needs_review, flag]))
 
 
-def _save_brand(doc, listing):
-	"""Assign the house brand the model decided this product belongs under.
+def _save_brand(doc, listing, source_listing):
+	"""Assign the house brand this product belongs under.
 
 	Lives on this enrichment record only -- see `_push_to_listing` in
 	amazon_enriched_listing.py, which deliberately never writes it to the
 	Amazon Product Listing.
 
-	Unlike product type above, this IS the model's own judgement: it read the
-	product off the source listing and its photos and picked the house brand
-	(if any) whose coverage fits, per the HOUSE BRAND instructions in the
-	prompt -- before writing the title, which opens with that brand. Anything
-	other than one of this deployment's actual registered brands is treated as
-	no brand at all, in case a bad response slips past the schema.
+	**The classifier's answer is the one written here**, not the `brand` the
+	agent returned in its output. Both exist: `brand.classify` decides in its
+	own call (memoized, so this is the same answer get_product already handed
+	the agent), and the agent echoes it back as one field among nine. The echo
+	is the copy that can go missing, so it is used to check the record rather
+	than to fill it.
 
-	Only flags `needs_review` when this site actually has house brands at all
-	(`brand.is_configured()`) -- a deployment with none registered has nothing
-	to say about brand, and nagging every listing about a field that
-	deployment doesn't use would train reviewers to ignore the flag.
+	Two things reach the reviewer. A disagreement matters because the TITLE was
+	built on the agent's copy while the record carries the classifier's: the
+	row is then internally inconsistent and the published title is the wrong
+	half. Nothing to write at all matters because a site with house brands
+	should not have brandless rows -- that is the bug this whole path exists to
+	fix, so it is flagged rather than left quiet.
+
+	A site with no house brands is left entirely alone, `brand` included. That
+	is not "nobody assigned a brand" but "this deployment doesn't use brands",
+	and a re-run that wiped a value a reviewer typed would be data loss.
 	"""
 	valid = brands.valid_brands()
 	if not valid:
 		return
 
-	candidate = (listing.get("brand") or "").strip()
-	doc.brand = candidate if candidate in valid else None
+	classified = brands.classify(source_listing)
+	claimed = (listing.get("brand") or "").strip()
+	claimed = claimed if claimed in valid else None
+
+	doc.brand = classified or claimed
+
 	if not doc.brand:
-		doc.needs_review = "\n".join(
-			filter(None, [doc.needs_review, "Brand (doesn't clearly fit one of this site's house brands)"])
+		flag = (
+			"Brand (could not be classified, and the enrichment named none — "
+			"assign one before approving)"
 		)
+	elif classified and claimed and claimed != classified:
+		flag = (
+			f"Brand (classified as '{classified}', but the copy was written for "
+			f"'{claimed}' — check what the title opens with before approving)"
+		)
+	else:
+		return
+
+	doc.needs_review = "\n".join(filter(None, [doc.needs_review, flag]))
 
 
 def save_listing(listing, sku=None):
@@ -636,7 +668,7 @@ def save_listing(listing, sku=None):
 
 	source_listing = get_listing(sku)
 	_save_product_type(doc, source_listing)
-	_save_brand(doc, listing)
+	_save_brand(doc, listing, source_listing)
 
 	# the ordered content -> pretty JSON; whole payload kept verbatim for audit
 	doc.bullets_json = frappe.as_json(listing.get("bullet_points") or [])
