@@ -557,10 +557,11 @@ def _save_brand(doc, listing):
 	Amazon Product Listing.
 
 	Unlike product type above, this IS the model's own judgement: it read the
-	title and description it just wrote and picked the house brand (if any)
-	that fits, per the HOUSE BRAND instructions in the prompt. Anything other
-	than one of this deployment's actual registered brands is treated as no
-	brand at all, in case a bad response slips past the schema.
+	product off the source listing and its photos and picked the house brand
+	(if any) whose coverage fits, per the HOUSE BRAND instructions in the
+	prompt -- before writing the title, which opens with that brand. Anything
+	other than one of this deployment's actual registered brands is treated as
+	no brand at all, in case a bad response slips past the schema.
 
 	Only flags `needs_review` when this site actually has house brands at all
 	(`brand.is_configured()`) -- a deployment with none registered has nothing

@@ -16,11 +16,12 @@ listings with no brand opinion at all rather than failing.
 Unlike the product type (see product_type.py), this genuinely IS the model's
 own judgement: a category (Item Group) is a fact about where a product sells
 today, not about which of a seller's own house brands it belongs to, and the
-two need not line up at all. So the model reads the title and description it
-just wrote and decides, guided by whatever the deployment's prompt override
-told it those brands cover. This module's only job at save time is to trust
-that answer when it names one of the deployment's actual registered brands,
-and otherwise treat it as no brand at all.
+two need not line up at all. So the model decides from what the product IS --
+the source listing and its photos -- guided by whatever the deployment's
+prompt override told it those brands cover. It decides BEFORE writing the
+title, because the title opens with the brand. This module's only job at save
+time is to trust that answer when it names one of the deployment's actual
+registered brands, and otherwise treat it as no brand at all.
 """
 
 import frappe
